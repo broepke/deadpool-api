@@ -1,5 +1,43 @@
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
+from datetime import datetime
+
+class PlayerPick(BaseModel):
+    """
+    Pydantic model for Player Pick data.
+    """
+    person_id: str
+    year: int
+    timestamp: datetime
+
+class PlayerPickResponse(BaseModel):
+    """
+    Pydantic model for API responses containing Player Pick data.
+    """
+    message: str
+    data: List[PlayerPick]
+
+class PlayerPickUpdate(BaseModel):
+    """
+    Pydantic model for updating Player Pick data.
+    """
+    person_id: str
+    year: int
+
+class DraftOrder(BaseModel):
+    """
+    Pydantic model for Draft Order data.
+    """
+    player_id: str
+    draft_order: int
+    year: int
+
+class DraftOrderListResponse(BaseModel):
+    """
+    Pydantic model for API responses containing Draft Order data.
+    """
+    message: str
+    data: List[DraftOrder]
 
 class RouteInfo(BaseModel):
     """
@@ -51,16 +89,6 @@ class Person(BaseModel):
     status: str
     metadata: Optional[dict] = None
 
-class DeadpoolEntry(BaseModel):
-    """
-    Pydantic model for Deadpool data entries.
-    This can be expanded based on the actual data structure needed.
-    """
-    id: str
-    name: str
-    description: Optional[str] = None
-    metadata: Optional[dict] = None
-
 class SinglePlayerResponse(BaseModel):
     """
     Pydantic model for API responses containing a single Player.
@@ -74,20 +102,6 @@ class SinglePersonResponse(BaseModel):
     """
     message: str
     data: Person
-
-class SingleDeadpoolEntryResponse(BaseModel):
-    """
-    Pydantic model for API responses containing a single Deadpool entry.
-    """
-    message: str
-    data: DeadpoolEntry
-
-class DeadpoolResponse(BaseModel):
-    """
-    Pydantic model for API responses containing Deadpool data.
-    """
-    message: str
-    data: List[DeadpoolEntry]
 
 class PlayerResponse(BaseModel):
     """

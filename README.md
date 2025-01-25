@@ -71,8 +71,8 @@ Example Response:
   "message": "Successfully retrieved available routes",
   "routes": [
     {
-      "path": "/api/v1/deadpool/entries/",
-      "name": "get_deadpool_data"
+      "path": "/api/v1/deadpool/people/",
+      "name": "get_people"
     },
     {
       "path": "/api/v1/deadpool/players",
@@ -81,30 +81,6 @@ Example Response:
     // ... other routes
   ]
 }
-```
-
-### Deadpool Entries
-
-#### Get All Entries
-
-```
-GET /api/v1/deadpool/entries/
-```
-
-Returns all deadpool entries.
-
-#### Get Single Entry
-
-```
-GET /api/v1/deadpool/entries/{entry_id}
-```
-
-Returns a specific deadpool entry.
-
-Example:
-
-```
-GET /api/v1/deadpool/entries/abc123
 ```
 
 ### Players
@@ -201,6 +177,88 @@ PUT /api/v1/deadpool/people/def456
     "metadata": {
         "DeathDate": "2024-01-25"
     }
+}
+```
+
+### Draft Order
+
+#### Get Draft Order Records
+
+```
+GET /api/v1/deadpool/draft-order
+```
+
+Returns draft order records, optionally filtered by year and/or player.
+
+Example:
+
+```
+GET /api/v1/deadpool/draft-order?year=2024
+GET /api/v1/deadpool/draft-order?player_id=xyz789
+GET /api/v1/deadpool/draft-order?year=2024&player_id=xyz789
+```
+
+#### Update Draft Order
+
+```
+PUT /api/v1/deadpool/draft-order/{player_id}
+```
+
+Updates a player's draft order for a specific year.
+
+Example:
+
+```
+PUT /api/v1/deadpool/draft-order/xyz789?year=2024&draft_order=3
+```
+
+### Player Picks
+
+#### Get Player Picks
+
+```
+GET /api/v1/deadpool/player-picks/{player_id}
+```
+
+Returns all picks made for a specific player, optionally filtered by year. Results are sorted by timestamp with most recent picks first.
+
+Example:
+
+```
+GET /api/v1/deadpool/player-picks/xyz789
+GET /api/v1/deadpool/player-picks/xyz789?year=2024
+```
+
+#### Update Player Pick
+
+```
+PUT /api/v1/deadpool/player-picks/{player_id}
+```
+
+Creates or updates a pick for a specific player. The timestamp is automatically set to the current time.
+
+Example:
+
+```json
+PUT /api/v1/deadpool/player-picks/xyz789
+{
+    "person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
+    "year": 2024
+}
+```
+
+Response format:
+```json
+{
+    "message": "Successfully retrieved player picks",
+    "data": [
+        {
+            "person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
+            "year": 2024,
+            "timestamp": "2024-01-12T02:12:13.343"
+        }
+        // ... other picks
+    ]
 }
 ```
 

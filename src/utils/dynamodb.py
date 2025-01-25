@@ -1,6 +1,7 @@
 import boto3
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
+from datetime import datetime
 from fastapi import HTTPException
 
 class DynamoDBClient:
@@ -137,18 +138,6 @@ class DynamoDBClient:
         items = response.get('Items', [])
         return [self._transform_person(item) for item in items]
 
-    async def get_deadpool_entries(self) -> List[Dict[str, Any]]:
-        """
-        Get all deadpool entries from DynamoDB.
-        """
-        params = {
-            'FilterExpression': 'SK = :details',
-            'ExpressionAttributeValues': {':details': 'DETAILS'}
-        }
-        response = self.table.scan(**params)
-        items = response.get('Items', [])
-        return [self._transform_person(item) for item in items]
-
     async def get_player(self, player_id: str, year: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """
         Get a specific player from DynamoDB.
@@ -242,25 +231,6 @@ class DynamoDBClient:
             print(f"Error getting person {person_id}: {str(e)}")
             return None
 
-    async def get_deadpool_entry(self, entry_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get a specific deadpool entry from DynamoDB.
-        """
-        try:
-            response = self.table.get_item(
-                Key={
-                    'PK': f'ENTRY#{entry_id}',
-                    'SK': 'DETAILS'
-                }
-            )
-            item = response.get('Item')
-            if not item:
-                return None
-            return self._transform_person(item)
-        except Exception as e:
-            print(f"Error getting entry {entry_id}: {str(e)}")
-            return None
-
     async def update_player(self, player_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """
         Update a player in DynamoDB.
@@ -325,6 +295,161 @@ class DynamoDBClient:
 
         # Get the updated player to return
         return (await self.get_players(updates.get('year')))[0]
+
+    async def get_draft_order(self, year: Optional[int] = None, player_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """
+        Get draft order records from DynamoDB, optionally filtered by year and/or player.
+        """
+        draft_orders = []
+        
+        if year:
+            # Query by specific year
+            params = {
+                'KeyConditionExpression': 'PK = :year_key',
+                'ExpressionAttributeValues': {
+                    ':year_key': f'YEAR#{year}'
+                }
+            }
+            
+            if player_id:
+                # Add player filter if specified
+                params['FilterExpression'] = 'contains(SK, :player_id)'
+                params['ExpressionAttributeValues'][':player_id'] = player_id
+            
+            response = self.table.query(**params)
+            items = response.get('Items', [])
+            
+            for item in items:
+                # SK format: ORDER#{draft_order}#PLAYER#{player_id}
+                parts = item['SK'].split('#')
+                if len(parts) >= 4:
+                    draft_orders.append({
+                        "player_id": parts[3],
+                        "draft_order": int(parts[1]),
+                        "year": year
+                    })
+        else:
+            # If no year specified, scan all years
+            params = {
+                'FilterExpression': 'begins_with(PK, :year_prefix)',
+                'ExpressionAttributeValues': {
+                    ':year_prefix': 'YEAR#'
+                }
+            }
+            
+            if player_id:
+                # Add player filter if specified
+                params['FilterExpression'] += ' and contains(SK, :player_id)'
+                params['ExpressionAttributeValues'][':player_id'] = player_id
+            
+            response = self.table.scan(**params)
+            items = response.get('Items', [])
+            
+            for item in items:
+                # Extract year from PK (format: YEAR#yyyy)
+                year_str = item['PK'].split('#')[1]
+                # SK format: ORDER#{draft_order}#PLAYER#{player_id}
+                parts = item['SK'].split('#')
+                if len(parts) >= 4:
+                    draft_orders.append({
+                        "player_id": parts[3],
+                        "draft_order": int(parts[1]),
+                        "year": int(year_str)
+                    })
+        
+        # Sort by year (descending) and draft order (ascending)
+        draft_orders.sort(key=lambda x: (-x['year'], x['draft_order']))
+        return draft_orders
+
+    async def update_draft_order(self, player_id: str, year: int, draft_order: int) -> Dict[str, Any]:
+        """
+        Update a draft order in DynamoDB.
+        """
+        try:
+            # Create new draft order record
+            item = {
+                'PK': f'YEAR#{year}',
+                'SK': f'ORDER#{draft_order}#PLAYER#{player_id}',
+                'Type': 'DraftOrder'
+            }
+            
+            self.table.put_item(Item=item)
+            
+            return {
+                "player_id": player_id,
+                "draft_order": draft_order,
+                "year": year
+            }
+        except Exception as e:
+            print(f"Error updating draft order: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to update draft order")
+
+    async def get_player_picks(self, player_id: str, year: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get all picks for a specific player, optionally filtered by year.
+        """
+        try:
+            params = {
+                'KeyConditionExpression': 'PK = :pk',
+                'ExpressionAttributeValues': {
+                    ':pk': f'PLAYER#{player_id}'
+                }
+            }
+            
+            # Add year filter if specified
+            if year:
+                params['KeyConditionExpression'] += ' and begins_with(SK, :sk_prefix)'
+                params['ExpressionAttributeValues'][':sk_prefix'] = f'PICK#{year}#'
+            else:
+                params['FilterExpression'] = 'begins_with(SK, :pick_prefix)'
+                params['ExpressionAttributeValues'][':pick_prefix'] = 'PICK#'
+            
+            response = self.table.query(**params)
+            items = response.get('Items', [])
+            
+            picks = []
+            for item in items:
+                # SK format: PICK#year#person_id
+                parts = item['SK'].split('#')
+                if len(parts) >= 3:
+                    picks.append({
+                        "person_id": parts[2],
+                        "year": int(parts[1]),
+                        "timestamp": item.get('Timestamp')
+                    })
+            
+            # Sort by timestamp descending (most recent first)
+            picks.sort(key=lambda x: x['timestamp'], reverse=True)
+            return picks
+            
+        except Exception as e:
+            print(f"Error getting picks for player {player_id}: {str(e)}")
+            return []
+
+    async def update_player_pick(self, player_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Update or create a player pick in DynamoDB.
+        """
+        try:
+            # Create new pick record with current timestamp
+            item = {
+                'PK': f'PLAYER#{player_id}',
+                'SK': f'PICK#{updates["year"]}#{updates["person_id"]}',
+                'Year': updates['year'],
+                'PersonID': updates['person_id'],
+                'Timestamp': datetime.utcnow().isoformat()
+            }
+            
+            self.table.put_item(Item=item)
+            
+            return {
+                "person_id": updates['person_id'],
+                "year": updates['year'],
+                "timestamp": item['Timestamp']
+            }
+        except Exception as e:
+            print(f"Error updating player pick: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to update player pick")
 
     async def update_person(self, person_id: str, updates: Dict[str, Any]) -> Dict[str, Any]:
         """

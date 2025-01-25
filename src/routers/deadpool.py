@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Query, Path
 from typing import Optional
 from ..models.deadpool import (
-    PlayerResponse, PersonResponse, DeadpoolResponse,
+    PlayerResponse, PersonResponse,
     PlayerUpdate, PersonUpdate, SinglePlayerResponse,
-    SinglePersonResponse, SingleDeadpoolEntryResponse,
-    RouteInfo, RoutesResponse
+    SinglePersonResponse, RouteInfo, RoutesResponse,
+    DraftOrder, DraftOrderListResponse, PlayerPickResponse,
+    PlayerPickUpdate
 )
 from ..utils.dynamodb import DynamoDBClient
 
@@ -30,34 +31,6 @@ async def get_routes():
     return {
         "message": "Successfully retrieved available routes",
         "routes": routes
-    }
-
-@router.get("/entries", response_model=DeadpoolResponse)
-async def get_deadpool_data():
-    """
-    Get all Deadpool entries from DynamoDB.
-    """
-    db = DynamoDBClient()
-    entries = await db.get_deadpool_entries()
-    return {
-        "message": "Successfully retrieved deadpool entries",
-        "data": entries
-    }
-
-@router.get("/entries/{entry_id}", response_model=SingleDeadpoolEntryResponse)
-async def get_deadpool_entry(
-    entry_id: str = Path(..., description="The ID of the entry to get")
-):
-    """
-    Get a specific deadpool entry.
-    """
-    db = DynamoDBClient()
-    entry = await db.get_deadpool_entry(entry_id)
-    if not entry:
-        raise HTTPException(status_code=404, detail="Entry not found")
-    return {
-        "message": "Successfully retrieved entry",
-        "data": entry
     }
 
 @router.get("/players", response_model=PlayerResponse)
@@ -146,4 +119,65 @@ async def update_person(
     return {
         "message": "Successfully updated person",
         "data": [updated_person]  # Wrap in list to match response model
+    }
+
+@router.get("/draft-order", response_model=DraftOrderListResponse)
+async def get_draft_order(
+    year: Optional[int] = Query(None, description="Filter draft orders by year"),
+    player_id: Optional[str] = Query(None, description="Filter draft orders by player ID")
+):
+    """
+    Get draft order records, optionally filtered by year and/or player.
+    """
+    db = DynamoDBClient()
+    draft_orders = await db.get_draft_order(year, player_id)
+    return {
+        "message": "Successfully retrieved draft orders",
+        "data": draft_orders
+    }
+
+@router.put("/player-picks/{player_id}", response_model=PlayerPickResponse)
+async def update_player_pick(
+    player_id: str = Path(..., description="The ID of the player to update picks for"),
+    updates: PlayerPickUpdate = None
+):
+    """
+    Update or create a pick for a specific player.
+    """
+    db = DynamoDBClient()
+    updated_pick = await db.update_player_pick(player_id, updates.dict())
+    return {
+        "message": "Successfully updated player pick",
+        "data": [updated_pick]  # Wrap in list to match response model
+    }
+
+@router.get("/player-picks/{player_id}", response_model=PlayerPickResponse)
+async def get_player_picks(
+    player_id: str = Path(..., description="The ID of the player to get picks for"),
+    year: Optional[int] = Query(None, description="Filter picks by year")
+):
+    """
+    Get all picks for a specific player, optionally filtered by year.
+    """
+    db = DynamoDBClient()
+    picks = await db.get_player_picks(player_id, year)
+    return {
+        "message": "Successfully retrieved player picks",
+        "data": picks
+    }
+
+@router.put("/draft-order/{player_id}", response_model=DraftOrderListResponse)
+async def update_draft_order(
+    player_id: str = Path(..., description="The ID of the player to update"),
+    year: int = Query(..., description="The year for the draft order"),
+    draft_order: int = Query(..., description="The new draft order position")
+):
+    """
+    Update a player's draft order for a specific year.
+    """
+    db = DynamoDBClient()
+    updated_order = await db.update_draft_order(player_id, year, draft_order)
+    return {
+        "message": "Successfully updated draft order",
+        "data": [updated_order]  # Wrap in list to match response model
     }
