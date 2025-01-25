@@ -5,3 +5,4 @@ requests
 pandas
 pydantic
 mangum
+uvicorn

@@ -45,3 +45,12 @@ The shell script handles the actual data loading:
    ```
 
 Note: Ensure you have AWS credentials configured with appropriate permissions to write to DynamoDB.
+
+
+## 
+
+Starting the Web Server:
+
+```bash
+cd src && uvicorn main:app --reload
+```
