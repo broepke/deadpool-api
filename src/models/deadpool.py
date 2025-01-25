@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any, Union, Tuple
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
@@ -181,3 +181,22 @@ class NextDrafterResponse(BaseModel):
 
     message: str
     data: Dict[str, Any]
+
+
+class LeaderboardEntry(BaseModel):
+    """
+    Pydantic model for a player's leaderboard entry.
+    """
+    
+    player_id: str
+    player_name: str
+    score: int
+
+
+class LeaderboardResponse(BaseModel):
+    """
+    Pydantic model for API response containing leaderboard data.
+    """
+    
+    message: str
+    data: List[LeaderboardEntry]

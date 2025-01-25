@@ -335,6 +335,52 @@ Response format:
 }
 ```
 
+### Leaderboard
+
+#### Get Leaderboard
+
+```
+GET /api/v1/deadpool/leaderboard
+```
+
+Returns a ranked list of players based on their scores for a given year. The score for each player is calculated as the sum of `50 + (100 - Age)` for each of their celebrity picks that are deceased (have a DeathDate).
+
+Optional query parameter:
+- `year`: Filter by year (defaults to current year if not specified)
+
+Example:
+
+```
+GET /api/v1/deadpool/leaderboard
+GET /api/v1/deadpool/leaderboard?year=2024
+```
+
+Response format:
+
+```json
+{
+  "message": "Successfully retrieved leaderboard",
+  "data": [
+    {
+      "player_id": "xyz789",
+      "player_name": "John Smith",
+      "score": 250
+    },
+    {
+      "player_id": "abc123",
+      "player_name": "Jane Doe",
+      "score": 175
+    }
+    // ... other players sorted by score (highest first)
+  ]
+}
+```
+
+The response includes:
+- `player_id`: The ID of the player
+- `player_name`: The name of the player
+- `score`: Total score calculated from their dead celebrity picks
+
 ### Draft Order Management
 
 #### Get Next Drafter

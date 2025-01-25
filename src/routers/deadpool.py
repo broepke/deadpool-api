@@ -9,15 +9,14 @@ from ..models.deadpool import (
     PersonUpdate,
     SinglePlayerResponse,
     SinglePersonResponse,
-    RouteInfo,
     RoutesResponse,
-    DraftOrder,
     DraftOrderListResponse,
     PlayerPickResponse,
     PlayerPickUpdate,
-    PickDetail,
     PickDetailResponse,
     NextDrafterResponse,
+    LeaderboardResponse,
+    LeaderboardEntry,
 )
 from ..utils.dynamodb import DynamoDBClient
 
@@ -281,6 +280,60 @@ async def get_picks(year: int = Query(..., description="Filter picks by year")):
     detailed_picks.sort(key=lambda x: x["draft_order"])
 
     return {"message": "Successfully retrieved picks", "data": detailed_picks}
+
+
+@router.get("/leaderboard", response_model=LeaderboardResponse)
+async def get_leaderboard(
+    year: Optional[int] = Query(None, description="The year to get the leaderboard for (defaults to current year)")
+):
+    """
+    Get the leaderboard for a specific year.
+    Players are scored based on their dead celebrity picks:
+    Score = sum of (50 + (100 - Age)) for each dead celebrity
+    """
+    # Use current year if none specified
+    target_year = year if year else datetime.now().year
+    """
+    Get the leaderboard for a specific year.
+    Players are scored based on their dead celebrity picks:
+    Score = sum of (50 + (100 - Age)) for each dead celebrity
+    """
+    db = DynamoDBClient()
+    
+    # Get all players for the year
+    players = await db.get_players(target_year)
+    
+    # Calculate scores for each player
+    leaderboard_entries = []
+    for player in players:
+        total_score = 0
+        # Get all picks for this player in the year
+        picks = await db.get_player_picks(player["id"], target_year)
+        
+        # Calculate score for each pick
+        for pick in picks:
+            person = await db.get_person(pick["person_id"])
+            if person and person.get("metadata", {}).get("DeathDate"):
+                # Person is dead, calculate score
+                age = person.get("metadata", {}).get("Age", 0)
+                pick_score = 50 + (100 - age)
+                total_score += pick_score
+        
+        # Create leaderboard entry
+        entry = LeaderboardEntry(
+            player_id=player["id"],
+            player_name=player["name"],
+            score=total_score
+        )
+        leaderboard_entries.append(entry)
+    
+    # Sort by score (highest first)
+    leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
+    
+    return {
+        "message": "Successfully retrieved leaderboard",
+        "data": leaderboard_entries
+    }
 
 
 @router.get("/next-drafter", response_model=NextDrafterResponse)
