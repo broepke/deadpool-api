@@ -71,12 +71,30 @@ async def get_player(
 
 @router.put("/players/{player_id}", response_model=PlayerResponse)
 async def update_player(
-    player_id: str = Path(..., description="The ID of the player to update"),
+    player_id: str = Path(..., description="The ID of the player to update or create"),
     updates: PlayerUpdate = None,
 ):
     """
-    Update a player's information.
+    Update or create a player's information.
+
+    When creating a new player, the following fields are required:
+    - name: Player's full name
+    - draft_order: Player's draft position
+    - year: Draft year
     """
+    # Validate required fields for new players
+    existing_player = await DynamoDBClient().get_player(player_id)
+    if not existing_player:
+        if (
+            not updates
+            or not updates.name
+            or updates.draft_order is None
+            or updates.year is None
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="New players require name, draft_order, and year",
+            )
     db = DynamoDBClient()
     updated_player = await db.update_player(player_id, updates.dict(exclude_unset=True))
     return {
@@ -111,12 +129,20 @@ async def get_person(
 
 @router.put("/people/{person_id}", response_model=PersonResponse)
 async def update_person(
-    person_id: str = Path(..., description="The ID of the person to update"),
+    person_id: str = Path(..., description="The ID of the person to update or create"),
     updates: PersonUpdate = None,
 ):
     """
-    Update a person's information.
+    Update or create a person's information.
+
+    When creating a new person, the following field is required:
+    - name: Person's full name
     """
+    # Validate required fields for new people
+    existing_person = await DynamoDBClient().get_person(person_id)
+    if not existing_person:
+        if not updates or not updates.name:
+            raise HTTPException(status_code=400, detail="New people require a name")
     db = DynamoDBClient()
     updated_person = await db.update_person(person_id, updates.dict(exclude_unset=True))
     return {
@@ -249,6 +275,7 @@ async def get_picks(year: int = Query(..., description="Filter picks by year")):
 
     return {"message": "Successfully retrieved picks", "data": detailed_picks}
 
+
 @router.get("/next-drafter", response_model=NextDrafterResponse)
 async def get_next_drafter():
     """
@@ -269,7 +296,7 @@ async def get_next_drafter():
     player_data = []
     for player in players:
         picks = await db.get_player_picks(player["id"], year)
-        
+
         # Count picks for active people only
         active_pick_count = 0
         for pick in picks:
@@ -279,13 +306,15 @@ async def get_next_drafter():
 
         # Only include players who haven't reached 20 active picks
         if active_pick_count < 20:
-            player_data.append({
-                "id": player["id"],
-                "name": player["name"],
-                "draft_order": player["draft_order"],
-                "pick_count": len(picks),
-                "active_pick_count": active_pick_count
-            })
+            player_data.append(
+                {
+                    "id": player["id"],
+                    "name": player["name"],
+                    "draft_order": player["draft_order"],
+                    "pick_count": len(picks),
+                    "active_pick_count": active_pick_count,
+                }
+            )
 
     if not player_data:
         raise HTTPException(status_code=404, detail="No eligible players found")
@@ -295,7 +324,7 @@ async def get_next_drafter():
 
     # Return the first player (lowest draft order and least picks)
     next_drafter = player_data[0]
-    
+
     return {
         "message": "Successfully determined next drafter",
         "data": {
@@ -303,6 +332,6 @@ async def get_next_drafter():
             "player_name": next_drafter["name"],
             "draft_order": next_drafter["draft_order"],
             "current_pick_count": next_drafter["pick_count"],
-            "active_pick_count": next_drafter["active_pick_count"]
-        }
+            "active_pick_count": next_drafter["active_pick_count"],
+        },
     }

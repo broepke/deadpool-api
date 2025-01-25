@@ -113,15 +113,19 @@ Example:
 GET /api/v1/deadpool/players/xyz789?year=2024
 ```
 
-#### Update Player
+#### Create or Update Player
 
 ```
 PUT /api/v1/deadpool/players/{player_id}
 ```
 
-Updates a player's information.
+Creates a new player or updates an existing player's information. When creating a new player, the following fields are required:
 
-Example:
+- `name`: Player's full name
+- `draft_order`: Player's draft position
+- `year`: Draft year
+
+Example creating a new player:
 
 ```
 PUT /api/v1/deadpool/players/xyz789
@@ -131,6 +135,17 @@ PUT /api/v1/deadpool/players/xyz789
     "year": 2024,
     "metadata": {
         "team": "Red Sox"
+    }
+}
+```
+
+Example updating an existing player:
+
+```
+PUT /api/v1/deadpool/players/xyz789
+{
+    "metadata": {
+        "team": "Yankees"
     }
 }
 ```
@@ -159,20 +174,34 @@ Example:
 GET /api/v1/deadpool/people/def456
 ```
 
-#### Update Person
+#### Create or Update Person
 
 ```
 PUT /api/v1/deadpool/people/{person_id}
 ```
 
-Updates a person's information.
+Creates a new person or updates an existing person's information. When creating a new person, the following field is required:
 
-Example:
+- `name`: Person's full name
+
+Example creating a new person:
 
 ```
 PUT /api/v1/deadpool/people/def456
 {
     "name": "Jane Doe",
+    "metadata": {
+        "Age": 75,
+        "BirthDate": "1949-01-25"
+    }
+}
+```
+
+Example updating a person's status:
+
+```
+PUT /api/v1/deadpool/people/def456
+{
     "status": "deceased",
     "metadata": {
         "DeathDate": "2024-01-25"
@@ -223,6 +252,7 @@ GET /api/v1/deadpool/picks
 Returns all picks for a given year with detailed information about both players and their picked persons. Results are sorted by draft order.
 
 Required query parameter:
+
 - `year`: Filter picks by year
 
 Example:
@@ -232,24 +262,25 @@ GET /api/v1/deadpool/picks?year=2024
 ```
 
 Response format:
+
 ```json
 {
-    "message": "Successfully retrieved picks",
-    "data": [
-        {
-            "player_id": "0f7bc0ea-6704-491d-8fe0-5a015a9851c9",
-            "player_name": "John Wholihan",
-            "draft_order": 1,
-            "pick_person_id": "17a406cb-9706-4632-821c-8882c4efd5a8",
-            "pick_person_name": "Carrot Top",
-            "pick_person_age": 58,
-            "pick_person_birth_date": "1965-02-25",
-            "pick_person_death_date": null,
-            "pick_timestamp": "2024-01-13T18:21:29.307000",
-            "year": 2024
-        }
-        // ... other picks
-    ]
+  "message": "Successfully retrieved picks",
+  "data": [
+    {
+      "player_id": "0f7bc0ea-6704-491d-8fe0-5a015a9851c9",
+      "player_name": "John Wholihan",
+      "draft_order": 1,
+      "pick_person_id": "17a406cb-9706-4632-821c-8882c4efd5a8",
+      "pick_person_name": "Carrot Top",
+      "pick_person_age": 58,
+      "pick_person_birth_date": "1965-02-25",
+      "pick_person_death_date": null,
+      "pick_timestamp": "2024-01-13T18:21:29.307000",
+      "year": 2024
+    }
+    // ... other picks
+  ]
 }
 ```
 
@@ -287,17 +318,18 @@ GET /api/v1/deadpool/player-picks/xyz789?year=2024
 ```
 
 Response format:
+
 ```json
 {
-    "message": "Successfully retrieved player picks",
-    "data": [
-        {
-            "person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
-            "year": 2024,
-            "timestamp": "2024-01-12T02:12:13.343"
-        }
-        // ... other picks
-    ]
+  "message": "Successfully retrieved player picks",
+  "data": [
+    {
+      "person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
+      "year": 2024,
+      "timestamp": "2024-01-12T02:12:13.343"
+    }
+    // ... other picks
+  ]
 }
 ```
 
@@ -310,25 +342,28 @@ GET /api/v1/deadpool/next-drafter
 ```
 
 Determines who should draft next based on the following criteria:
+
 1. Lowest draft order number for the current year
 2. Least number of picks for the current year
 3. Total picks not exceeding 20 for active people (where DeathDate is null)
 
 Example Response:
+
 ```json
 {
-    "message": "Successfully determined next drafter",
-    "data": {
-        "player_id": "xyz789",
-        "player_name": "John Smith",
-        "draft_order": 1,
-        "current_pick_count": 5,
-        "active_pick_count": 5
-    }
+  "message": "Successfully determined next drafter",
+  "data": {
+    "player_id": "xyz789",
+    "player_name": "John Smith",
+    "draft_order": 1,
+    "current_pick_count": 5,
+    "active_pick_count": 5
+  }
 }
 ```
 
 The response includes:
+
 - `player_id`: The ID of the next player to draft
 - `player_name`: The name of the next player to draft
 - `draft_order`: Their current draft order position
@@ -348,5 +383,6 @@ All endpoints (except the base endpoint) return responses in the following forma
 
 ### Error Responses
 
+- `400 Bad Request`: When required fields are missing for new records
 - `404 Not Found`: When requested resource doesn't exist
 - `500 Internal Server Error`: When database operations fail
