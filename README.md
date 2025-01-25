@@ -58,7 +58,7 @@ uvicorn src.main:app --reload
 
 #### Get Available Routes
 
-```
+```json
 GET /api/v1/deadpool/
 ```
 
@@ -87,7 +87,7 @@ Example Response:
 
 #### Get All Players
 
-```
+```json
 GET /api/v1/deadpool/players
 ```
 
@@ -95,13 +95,13 @@ Returns all players, optionally filtered by year.
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/players?year=2024
 ```
 
 #### Get Single Player
 
-```
+```json
 GET /api/v1/deadpool/players/{player_id}
 ```
 
@@ -109,13 +109,13 @@ Returns a specific player's information, optionally for a specific year.
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/players/xyz789?year=2024
 ```
 
 #### Create or Update Player
 
-```
+```json
 PUT /api/v1/deadpool/players/{player_id}
 ```
 
@@ -127,7 +127,7 @@ Creates a new player or updates an existing player's information. When creating 
 
 Example creating a new player:
 
-```
+```json
 PUT /api/v1/deadpool/players/xyz789
 {
     "name": "John Smith",
@@ -141,7 +141,7 @@ PUT /api/v1/deadpool/players/xyz789
 
 Example updating an existing player:
 
-```
+```json
 PUT /api/v1/deadpool/players/xyz789
 {
     "metadata": {
@@ -154,7 +154,7 @@ PUT /api/v1/deadpool/players/xyz789
 
 #### Get All People
 
-```
+```json
 GET /api/v1/deadpool/people
 ```
 
@@ -162,7 +162,7 @@ Returns all people in the deadpool.
 
 #### Get Single Person
 
-```
+```json
 GET /api/v1/deadpool/people/{person_id}
 ```
 
@@ -170,13 +170,13 @@ Returns a specific person's information.
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/people/def456
 ```
 
 #### Create or Update Person
 
-```
+```json
 PUT /api/v1/deadpool/people/{person_id}
 ```
 
@@ -186,7 +186,7 @@ Creates a new person or updates an existing person's information. When creating 
 
 To create a new person with an automatically generated UUID, use "new" as the person_id:
 
-```
+```json
 PUT /api/v1/deadpool/people/new
 {
     "name": "Jane Doe",
@@ -201,7 +201,7 @@ The response will include the generated UUID in the person's "id" field.
 
 Example updating an existing person's status:
 
-```
+```json
 PUT /api/v1/deadpool/people/def456
 {
     "status": "deceased",
@@ -215,7 +215,7 @@ PUT /api/v1/deadpool/people/def456
 
 #### Get Draft Order Records
 
-```
+```json
 GET /api/v1/deadpool/draft-order
 ```
 
@@ -223,7 +223,7 @@ Returns draft order records, optionally filtered by year and/or player.
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/draft-order?year=2024
 GET /api/v1/deadpool/draft-order?player_id=xyz789
 GET /api/v1/deadpool/draft-order?year=2024&player_id=xyz789
@@ -231,7 +231,7 @@ GET /api/v1/deadpool/draft-order?year=2024&player_id=xyz789
 
 #### Update Draft Order
 
-```
+```json
 PUT /api/v1/deadpool/draft-order/{player_id}
 ```
 
@@ -239,7 +239,7 @@ Updates a player's draft order for a specific year.
 
 Example:
 
-```
+```json
 PUT /api/v1/deadpool/draft-order/xyz789?year=2024&draft_order=3
 ```
 
@@ -247,7 +247,7 @@ PUT /api/v1/deadpool/draft-order/xyz789?year=2024&draft_order=3
 
 #### Get All Picks with Details
 
-```
+```json
 GET /api/v1/deadpool/picks
 ```
 
@@ -259,7 +259,7 @@ Required query parameter:
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/picks?year=2024
 ```
 
@@ -288,7 +288,7 @@ Response format:
 
 #### Update Player Pick
 
-```
+```json
 PUT /api/v1/deadpool/player-picks/{player_id}
 ```
 
@@ -306,7 +306,7 @@ PUT /api/v1/deadpool/player-picks/xyz789
 
 #### Get Player Picks
 
-```
+```json
 GET /api/v1/deadpool/player-picks/{player_id}
 ```
 
@@ -314,7 +314,7 @@ Returns all picks made for a specific player, optionally filtered by year. Resul
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/player-picks/xyz789
 GET /api/v1/deadpool/player-picks/xyz789?year=2024
 ```
@@ -339,18 +339,19 @@ Response format:
 
 #### Get Leaderboard
 
-```
+```json
 GET /api/v1/deadpool/leaderboard
 ```
 
 Returns a ranked list of players based on their scores for a given year. The score for each player is calculated as the sum of `50 + (100 - Age)` for each of their celebrity picks that are deceased (have a DeathDate).
 
 Optional query parameter:
+
 - `year`: Filter by year (defaults to current year if not specified)
 
 Example:
 
-```
+```json
 GET /api/v1/deadpool/leaderboard
 GET /api/v1/deadpool/leaderboard?year=2024
 ```
@@ -377,6 +378,7 @@ Response format:
 ```
 
 The response includes:
+
 - `player_id`: The ID of the player
 - `player_name`: The name of the player
 - `score`: Total score calculated from their dead celebrity picks
@@ -385,7 +387,7 @@ The response includes:
 
 #### Get Next Drafter
 
-```
+```json
 GET /api/v1/deadpool/next-drafter
 ```
 
