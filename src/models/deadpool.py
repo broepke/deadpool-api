@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any, Union
+from typing import Optional, List, Dict, Any, Union, Tuple
 from datetime import datetime
 
 class PickDetail(BaseModel):
@@ -138,3 +138,10 @@ class PersonResponse(BaseModel):
     """
     message: str
     data: List[Person]
+
+class NextDrafterResponse(BaseModel):
+    """
+    Pydantic model for API response containing next drafter information.
+    """
+    message: str
+    data: Dict[str, Any]

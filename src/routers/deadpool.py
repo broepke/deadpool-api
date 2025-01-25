@@ -15,6 +15,7 @@ from ..models.deadpool import (
     PlayerPickUpdate,
     PickDetail,
     PickDetailResponse,
+    NextDrafterResponse,
 )
 from ..utils.dynamodb import DynamoDBClient
 
@@ -247,3 +248,61 @@ async def get_picks(year: int = Query(..., description="Filter picks by year")):
     detailed_picks.sort(key=lambda x: x["draft_order"])
 
     return {"message": "Successfully retrieved picks", "data": detailed_picks}
+
+@router.get("/next-drafter", response_model=NextDrafterResponse)
+async def get_next_drafter():
+    """
+    Get the next player who should draft based on:
+    1. Lowest draft order number for current year
+    2. Least number of picks for current year
+    3. Total picks not exceeding 20 for active people
+    """
+    db = DynamoDBClient()
+    year = 2025  # Current year for drafting
+
+    # Get all players for the current year
+    players = await db.get_players(year)
+    if not players:
+        raise HTTPException(status_code=404, detail="No players found for current year")
+
+    # Get picks for each player and count active picks
+    player_data = []
+    for player in players:
+        picks = await db.get_player_picks(player["id"], year)
+        
+        # Count picks for active people only
+        active_pick_count = 0
+        for pick in picks:
+            person = await db.get_person(pick["person_id"])
+            if person and "DeathDate" not in person.get("metadata", {}):
+                active_pick_count += 1
+
+        # Only include players who haven't reached 20 active picks
+        if active_pick_count < 20:
+            player_data.append({
+                "id": player["id"],
+                "name": player["name"],
+                "draft_order": player["draft_order"],
+                "pick_count": len(picks),
+                "active_pick_count": active_pick_count
+            })
+
+    if not player_data:
+        raise HTTPException(status_code=404, detail="No eligible players found")
+
+    # Sort by draft order first, then by pick count
+    player_data.sort(key=lambda x: (x["draft_order"], x["pick_count"]))
+
+    # Return the first player (lowest draft order and least picks)
+    next_drafter = player_data[0]
+    
+    return {
+        "message": "Successfully determined next drafter",
+        "data": {
+            "player_id": next_drafter["id"],
+            "player_name": next_drafter["name"],
+            "draft_order": next_drafter["draft_order"],
+            "current_pick_count": next_drafter["pick_count"],
+            "active_pick_count": next_drafter["active_pick_count"]
+        }
+    }

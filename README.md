@@ -301,6 +301,40 @@ Response format:
 }
 ```
 
+### Draft Order Management
+
+#### Get Next Drafter
+
+```
+GET /api/v1/deadpool/next-drafter
+```
+
+Determines who should draft next based on the following criteria:
+1. Lowest draft order number for the current year
+2. Least number of picks for the current year
+3. Total picks not exceeding 20 for active people (where DeathDate is null)
+
+Example Response:
+```json
+{
+    "message": "Successfully determined next drafter",
+    "data": {
+        "player_id": "xyz789",
+        "player_name": "John Smith",
+        "draft_order": 1,
+        "current_pick_count": 5,
+        "active_pick_count": 5
+    }
+}
+```
+
+The response includes:
+- `player_id`: The ID of the next player to draft
+- `player_name`: The name of the next player to draft
+- `draft_order`: Their current draft order position
+- `current_pick_count`: Total number of picks they have for the current year
+- `active_pick_count`: Number of picks they have for people who are still alive
+
 ### Response Format
 
 All endpoints (except the base endpoint) return responses in the following format:
