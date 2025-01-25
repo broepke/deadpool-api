@@ -1,4 +1,5 @@
 import boto3
+import uuid
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from datetime import datetime
@@ -57,7 +58,7 @@ class DynamoDBClient:
         Get players from DynamoDB, optionally filtered by year.
         """
         # Default to current year if not specified
-        target_year = year if year else 2024
+        target_year = year if year else datetime.now().year
 
         # First get draft order records for the year
         params = {
@@ -169,7 +170,7 @@ class DynamoDBClient:
                     return None
 
             # Get draft order for the player
-            target_year = year if year else 2024
+            target_year = year if year else datetime.now().year
             # Extract clean player ID (without PLAYER# prefix) for draft order lookup
             clean_player_id = player_id.replace("PLAYER#", "")
 

@@ -1,5 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Path
 from typing import Optional
+import uuid
+from datetime import datetime
 from ..models.deadpool import (
     PlayerResponse,
     PersonResponse,
@@ -137,12 +139,17 @@ async def update_person(
 
     When creating a new person, the following field is required:
     - name: Person's full name
+    
+    Use 'new' as the person_id to automatically generate a UUID for a new person.
     """
-    # Validate required fields for new people
-    existing_person = await DynamoDBClient().get_person(person_id)
-    if not existing_person:
-        if not updates or not updates.name:
-            raise HTTPException(status_code=400, detail="New people require a name")
+    # Validate name is provided for new records
+    if not updates or not updates.name:
+        raise HTTPException(status_code=400, detail="Name is required")
+
+    # Generate UUID for new people
+    if person_id == "new":
+        person_id = str(uuid.uuid4())
+
     db = DynamoDBClient()
     updated_person = await db.update_person(person_id, updates.dict(exclude_unset=True))
     return {
@@ -285,7 +292,7 @@ async def get_next_drafter():
     3. Total picks not exceeding 20 for active people
     """
     db = DynamoDBClient()
-    year = 2025  # Current year for drafting
+    year = datetime.now().year  # Current year for drafting
 
     # Get all players for the current year
     players = await db.get_players(year)

@@ -184,10 +184,10 @@ Creates a new person or updates an existing person's information. When creating 
 
 - `name`: Person's full name
 
-Example creating a new person:
+To create a new person with an automatically generated UUID, use "new" as the person_id:
 
 ```
-PUT /api/v1/deadpool/people/def456
+PUT /api/v1/deadpool/people/new
 {
     "name": "Jane Doe",
     "metadata": {
@@ -197,7 +197,9 @@ PUT /api/v1/deadpool/people/def456
 }
 ```
 
-Example updating a person's status:
+The response will include the generated UUID in the person's "id" field.
+
+Example updating an existing person's status:
 
 ```
 PUT /api/v1/deadpool/people/def456
