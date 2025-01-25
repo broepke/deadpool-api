@@ -2,6 +2,28 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any, Union
 from datetime import datetime
 
+class PickDetail(BaseModel):
+    """
+    Pydantic model for detailed pick information including player and picked person details.
+    """
+    player_id: str
+    player_name: str
+    draft_order: int
+    pick_person_id: Optional[str]
+    pick_person_name: Optional[str]
+    pick_person_age: Optional[int]
+    pick_person_birth_date: Optional[str]
+    pick_person_death_date: Optional[str]
+    pick_timestamp: Optional[datetime]
+    year: int
+
+class PickDetailResponse(BaseModel):
+    """
+    Pydantic model for API responses containing detailed pick information.
+    """
+    message: str
+    data: List[PickDetail]
+
 class PlayerPick(BaseModel):
     """
     Pydantic model for Player Pick data.

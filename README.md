@@ -214,19 +214,43 @@ PUT /api/v1/deadpool/draft-order/xyz789?year=2024&draft_order=3
 
 ### Player Picks
 
-#### Get Player Picks
+#### Get All Picks with Details
 
 ```
-GET /api/v1/deadpool/player-picks/{player_id}
+GET /api/v1/deadpool/picks
 ```
 
-Returns all picks made for a specific player, optionally filtered by year. Results are sorted by timestamp with most recent picks first.
+Returns all picks for a given year with detailed information about both players and their picked persons. Results are sorted by draft order.
+
+Required query parameter:
+- `year`: Filter picks by year
 
 Example:
 
 ```
-GET /api/v1/deadpool/player-picks/xyz789
-GET /api/v1/deadpool/player-picks/xyz789?year=2024
+GET /api/v1/deadpool/picks?year=2024
+```
+
+Response format:
+```json
+{
+    "message": "Successfully retrieved picks",
+    "data": [
+        {
+            "player_id": "0f7bc0ea-6704-491d-8fe0-5a015a9851c9",
+            "player_name": "John Wholihan",
+            "draft_order": 1,
+            "pick_person_id": "17a406cb-9706-4632-821c-8882c4efd5a8",
+            "pick_person_name": "Carrot Top",
+            "pick_person_age": 58,
+            "pick_person_birth_date": "1965-02-25",
+            "pick_person_death_date": null,
+            "pick_timestamp": "2024-01-13T18:21:29.307000",
+            "year": 2024
+        }
+        // ... other picks
+    ]
+}
 ```
 
 #### Update Player Pick
@@ -245,6 +269,21 @@ PUT /api/v1/deadpool/player-picks/xyz789
     "person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
     "year": 2024
 }
+```
+
+#### Get Player Picks
+
+```
+GET /api/v1/deadpool/player-picks/{player_id}
+```
+
+Returns all picks made for a specific player, optionally filtered by year. Results are sorted by timestamp with most recent picks first.
+
+Example:
+
+```
+GET /api/v1/deadpool/player-picks/xyz789
+GET /api/v1/deadpool/player-picks/xyz789?year=2024
 ```
 
 Response format:
