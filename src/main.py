@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from mangum import Mangum
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import deadpool
+from src.routers import deadpool
 
 app = FastAPI(
     title="Deadpool API",

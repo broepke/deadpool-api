@@ -1,6 +1,25 @@
 from pydantic import BaseModel
 from typing import Optional, List
 
+class Player(BaseModel):
+    """
+    Pydantic model for Player data.
+    """
+    id: str
+    name: str
+    draft_order: int
+    year: int
+    metadata: Optional[dict] = None
+
+class Person(BaseModel):
+    """
+    Pydantic model for Person data.
+    """
+    id: str
+    name: str
+    status: str
+    metadata: Optional[dict] = None
+
 class DeadpoolEntry(BaseModel):
     """
     Pydantic model for Deadpool data entries.
@@ -17,3 +36,17 @@ class DeadpoolResponse(BaseModel):
     """
     message: str
     data: List[DeadpoolEntry]
+
+class PlayerResponse(BaseModel):
+    """
+    Pydantic model for API responses containing Player data.
+    """
+    message: str
+    data: List[Player]
+
+class PersonResponse(BaseModel):
+    """
+    Pydantic model for API responses containing Person data.
+    """
+    message: str
+    data: List[Person]
