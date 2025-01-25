@@ -46,11 +46,176 @@ The shell script handles the actual data loading:
 
 Note: Ensure you have AWS credentials configured with appropriate permissions to write to DynamoDB.
 
-
-## 
-
-Starting the Web Server:
+## Starting the Web Server
 
 ```bash
-cd src && uvicorn main:app --reload
+uvicorn src.main:app --reload
 ```
+
+## API Endpoints
+
+### Base Endpoint
+
+#### Get Available Routes
+
+```
+GET /api/v1/deadpool/
+```
+
+Returns a list of all available API routes.
+
+Example Response:
+
+```json
+{
+  "message": "Successfully retrieved available routes",
+  "routes": [
+    {
+      "path": "/api/v1/deadpool/entries/",
+      "name": "get_deadpool_data"
+    },
+    {
+      "path": "/api/v1/deadpool/players",
+      "name": "get_players"
+    }
+    // ... other routes
+  ]
+}
+```
+
+### Deadpool Entries
+
+#### Get All Entries
+
+```
+GET /api/v1/deadpool/entries/
+```
+
+Returns all deadpool entries.
+
+#### Get Single Entry
+
+```
+GET /api/v1/deadpool/entries/{entry_id}
+```
+
+Returns a specific deadpool entry.
+
+Example:
+
+```
+GET /api/v1/deadpool/entries/abc123
+```
+
+### Players
+
+#### Get All Players
+
+```
+GET /api/v1/deadpool/players
+```
+
+Returns all players, optionally filtered by year.
+
+Example:
+
+```
+GET /api/v1/deadpool/players?year=2024
+```
+
+#### Get Single Player
+
+```
+GET /api/v1/deadpool/players/{player_id}
+```
+
+Returns a specific player's information, optionally for a specific year.
+
+Example:
+
+```
+GET /api/v1/deadpool/players/xyz789?year=2024
+```
+
+#### Update Player
+
+```
+PUT /api/v1/deadpool/players/{player_id}
+```
+
+Updates a player's information.
+
+Example:
+
+```
+PUT /api/v1/deadpool/players/xyz789
+{
+    "name": "John Smith",
+    "draft_order": 2,
+    "year": 2024,
+    "metadata": {
+        "team": "Red Sox"
+    }
+}
+```
+
+### People
+
+#### Get All People
+
+```
+GET /api/v1/deadpool/people
+```
+
+Returns all people in the deadpool.
+
+#### Get Single Person
+
+```
+GET /api/v1/deadpool/people/{person_id}
+```
+
+Returns a specific person's information.
+
+Example:
+
+```
+GET /api/v1/deadpool/people/def456
+```
+
+#### Update Person
+
+```
+PUT /api/v1/deadpool/people/{person_id}
+```
+
+Updates a person's information.
+
+Example:
+
+```
+PUT /api/v1/deadpool/people/def456
+{
+    "name": "Jane Doe",
+    "status": "deceased",
+    "metadata": {
+        "DeathDate": "2024-01-25"
+    }
+}
+```
+
+### Response Format
+
+All endpoints (except the base endpoint) return responses in the following format:
+
+```json
+{
+    "message": "Success message",
+    "data": [...]  // Array of items or single item depending on endpoint
+}
+```
+
+### Error Responses
+
+- `404 Not Found`: When requested resource doesn't exist
+- `500 Internal Server Error`: When database operations fail
