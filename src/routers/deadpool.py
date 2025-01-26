@@ -17,6 +17,8 @@ from ..models.deadpool import (
     NextDrafterResponse,
     LeaderboardResponse,
     LeaderboardEntry,
+    DraftRequest,
+    DraftResponse,
 )
 from ..utils.dynamodb import DynamoDBClient
 
@@ -138,7 +140,7 @@ async def update_person(
 
     When creating a new person, the following field is required:
     - name: Person's full name
-    
+
     Use 'new' as the person_id to automatically generate a UUID for a new person.
     """
     # Validate name is provided for new records
@@ -282,66 +284,77 @@ async def get_picks(year: int = Query(..., description="Filter picks by year")):
     return {"message": "Successfully retrieved picks", "data": detailed_picks}
 
 
-@router.get("/leaderboard", response_model=LeaderboardResponse)
-async def get_leaderboard(
-    year: Optional[int] = Query(None, description="The year to get the leaderboard for (defaults to current year)")
-):
+@router.post("/draft", response_model=DraftResponse)
+async def draft_person(draft_request: DraftRequest):
     """
-    Get the leaderboard for a specific year.
-    Players are scored based on their dead celebrity picks:
-    Score = sum of (50 + (100 - Age)) for each dead celebrity
-    """
-    # Use current year if none specified
-    target_year = year if year else datetime.now().year
-    """
-    Get the leaderboard for a specific year.
-    Players are scored based on their dead celebrity picks:
-    Score = sum of (50 + (100 - Age)) for each dead celebrity
+    Draft a person for the current year.
+    Rules:
+    1. Cannot draft someone already picked in current year
+    2. Can draft someone from previous years
+    3. Creates new person entry if not found in database
+    4. Creates player pick entry for the drafting player
     """
     db = DynamoDBClient()
-    
-    # Get all players for the year
-    players = await db.get_players(target_year)
-    
-    # Calculate scores for each player
-    leaderboard_entries = []
-    for player in players:
-        total_score = 0
-        # Get all picks for this player in the year
-        picks = await db.get_player_picks(player["id"], target_year)
-        
-        # Calculate score for each pick
-        for pick in picks:
-            person = await db.get_person(pick["person_id"])
-            if person and person.get("metadata", {}).get("DeathDate"):
-                # Person is dead, calculate score
-                age = person.get("metadata", {}).get("Age", 0)
-                pick_score = 50 + (100 - age)
-                total_score += pick_score
-        
-        # Create leaderboard entry
-        entry = LeaderboardEntry(
-            player_id=player["id"],
-            player_name=player["name"],
-            score=total_score
+    current_year = datetime.now().year
+
+    # Verify player exists
+    player = await db.get_player(draft_request.player_id)
+    if not player:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Player with ID {draft_request.player_id} not found",
         )
-        leaderboard_entries.append(entry)
-    
-    # Sort by score (highest first)
-    leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
-    
+
+    # Get all people to check if person already exists
+    people = await db.get_people()
+    existing_person = next(
+        (p for p in people if p["name"].lower() == draft_request.name.lower()), None
+    )
+
+    # Get all picks for current year to check for duplicates
+    players = await db.get_players(current_year)
+    for player in players:
+        picks = await db.get_player_picks(player["id"], current_year)
+        for pick in picks:
+            picked_person = await db.get_person(pick["person_id"])
+            if (
+                picked_person
+                and picked_person["name"].lower() == draft_request.name.lower()
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{draft_request.name} has already been drafted for {current_year}",
+                )
+
+    # If person exists in database but wasn't picked this year, use their ID
+    if existing_person:
+        person_id = existing_person["id"]
+    else:
+        # Create new person with UUID
+        person_id = str(uuid.uuid4())
+        await db.update_person(person_id, {"name": draft_request.name})
+
+    # Create player pick entry
+    pick_update = {"person_id": person_id, "year": current_year}
+    player_pick = await db.update_player_pick(draft_request.player_id, pick_update)
+
     return {
-        "message": "Successfully retrieved leaderboard",
-        "data": leaderboard_entries
+        "message": "Successfully processed draft request",
+        "data": {
+            "person_id": person_id,
+            "name": draft_request.name,
+            "is_new": not existing_person,
+            "pick_timestamp": player_pick["timestamp"],
+        },
     }
 
 
-@router.get("/next-drafter", response_model=NextDrafterResponse)
+@router.get("/draft-next", response_model=NextDrafterResponse)
 async def get_next_drafter():
     """
     Get the next player who should draft based on:
-    1. Lowest draft order number for current year
-    2. Least number of picks for current year
+    1. Least number of picks for current year
+    2. Lowest draft order number for current year
     3. Total picks not exceeding 20 for active people
     """
     db = DynamoDBClient()
@@ -379,8 +392,8 @@ async def get_next_drafter():
     if not player_data:
         raise HTTPException(status_code=404, detail="No eligible players found")
 
-    # Sort by draft order first, then by pick count
-    player_data.sort(key=lambda x: (x["draft_order"], x["pick_count"]))
+    # Sort by pick count first, then by draft order
+    player_data.sort(key=lambda x: (x["pick_count"], x["draft_order"]))
 
     # Return the first player (lowest draft order and least picks)
     next_drafter = player_data[0]
@@ -394,4 +407,59 @@ async def get_next_drafter():
             "current_pick_count": next_drafter["pick_count"],
             "active_pick_count": next_drafter["active_pick_count"],
         },
+    }
+
+
+@router.get("/leaderboard", response_model=LeaderboardResponse)
+async def get_leaderboard(
+    year: Optional[int] = Query(
+        None,
+        description="The year to get the leaderboard for (defaults to current year)",
+    ),
+):
+    """
+    Get the leaderboard for a specific year.
+    Players are scored based on their dead celebrity picks:
+    Score = sum of (50 + (100 - Age)) for each dead celebrity
+    """
+    # Use current year if none specified
+    target_year = year if year else datetime.now().year
+    """
+    Get the leaderboard for a specific year.
+    Players are scored based on their dead celebrity picks:
+    Score = sum of (50 + (100 - Age)) for each dead celebrity
+    """
+    db = DynamoDBClient()
+
+    # Get all players for the year
+    players = await db.get_players(target_year)
+
+    # Calculate scores for each player
+    leaderboard_entries = []
+    for player in players:
+        total_score = 0
+        # Get all picks for this player in the year
+        picks = await db.get_player_picks(player["id"], target_year)
+
+        # Calculate score for each pick
+        for pick in picks:
+            person = await db.get_person(pick["person_id"])
+            if person and person.get("metadata", {}).get("DeathDate"):
+                # Person is dead, calculate score
+                age = person.get("metadata", {}).get("Age", 0)
+                pick_score = 50 + (100 - age)
+                total_score += pick_score
+
+        # Create leaderboard entry
+        entry = LeaderboardEntry(
+            player_id=player["id"], player_name=player["name"], score=total_score
+        )
+        leaderboard_entries.append(entry)
+
+    # Sort by score (highest first)
+    leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
+
+    return {
+        "message": "Successfully retrieved leaderboard",
+        "data": leaderboard_entries,
     }

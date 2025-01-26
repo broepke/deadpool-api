@@ -245,6 +245,71 @@ PUT /api/v1/deadpool/draft-order/xyz789?year=2024&draft_order=3
 
 ### Player Picks
 
+#### Draft a Person
+
+```json
+POST /api/v1/deadpool/draft
+```
+
+Creates a new draft pick for a player. This endpoint will:
+
+1. Verify the person hasn't been picked in the current year
+2. Create a new person entry if they don't exist in the database
+3. Create a player pick entry with the current timestamp
+
+Required request body:
+
+```json
+{
+  "name": "Jane Doe",
+  "player_id": "xyz789"
+}
+```
+
+Example response:
+
+```json
+{
+  "message": "Successfully processed draft request",
+  "data": {
+    "person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
+    "name": "Jane Doe",
+    "is_new": true,
+    "pick_timestamp": "2025-01-25T23:45:18Z"
+  }
+}
+```
+
+Example CURL:
+
+```bash
+# BRIAN'S ID
+
+curl -X POST \
+  'http://localhost:8000/api/v1/deadpool/draft' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Jane Doe",
+    "player_id": "1831699b-e255-45ff-8671-b5c840922735"
+  }'
+
+
+# ANDREW'S ID
+
+curl -X POST \
+  'http://localhost:8000/api/v1/deadpool/draft' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Jane Doe",
+    "player_id": "bc913bed-5795-441d-916b-2a778383858e"
+  }'
+```
+
+The endpoint will return:
+
+- 404 error if the drafting player doesn't exist
+- 400 error if the person was already drafted in the current year
+
 #### Get All Picks with Details
 
 ```json
@@ -388,7 +453,7 @@ The response includes:
 #### Get Next Drafter
 
 ```json
-GET /api/v1/deadpool/next-drafter
+GET /api/v1/deadpool/draft-next
 ```
 
 Determines who should draft next based on the following criteria:

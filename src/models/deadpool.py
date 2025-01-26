@@ -193,6 +193,20 @@ class LeaderboardEntry(BaseModel):
     score: int
 
 
+class DraftRequest(BaseModel):
+    """
+    Pydantic model for draft request data.
+    """
+    name: str
+    player_id: str
+
+class DraftResponse(BaseModel):
+    """
+    Pydantic model for draft response data.
+    """
+    message: str
+    data: Dict[str, Any]
+
 class LeaderboardResponse(BaseModel):
     """
     Pydantic model for API response containing leaderboard data.
