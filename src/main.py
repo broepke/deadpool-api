@@ -16,7 +16,11 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins in development
+    allow_origins=[
+        "https://deadpool.dataknowsall.com",  # Production frontend
+        "http://localhost:3000",  # Local development
+        "http://localhost:5173",  # Vite default port
+    ],
     allow_credentials=True,
     allow_methods=["*"],  # Allows all methods
     allow_headers=["*"],  # Allows all headers
