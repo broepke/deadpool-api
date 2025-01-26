@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from mangum import Mangum
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.routers import deadpool
@@ -41,9 +40,6 @@ async def get_routes():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
-
-# Handler for AWS Lambda
-handler = Mangum(app)
 
 if __name__ == "__main__":
     import uvicorn

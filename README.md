@@ -1,5 +1,54 @@
 # deadpool-api
 
+## AWS Lambda Deployment
+
+The API can be deployed as an AWS Lambda function using the provided deployment script.
+
+### Prerequisites
+
+- AWS CLI installed and configured with appropriate credentials
+- Python 3.9 or later
+- Access to the AWS Lambda function "Deadpool-app"
+
+### Deployment Steps
+
+1. Deploy using the automated script:
+
+   ```bash
+   ./utilities/deploy_lambda.sh
+   ```
+
+   This script will:
+
+   - Clean up any previous deployment artifacts
+   - Install dependencies in a temporary directory
+   - Create a deployment package (lambda_function.zip)
+   - Upload the package to AWS Lambda
+   - Clean up temporary files
+
+2. (Optional) Configure the Lambda function:
+
+   - Handler: `src.main.handler`
+   - Runtime: Python 3.9
+   - Memory: 256 MB (recommended)
+   - Timeout: 30 seconds
+
+   You can uncomment the configuration section in the deployment script to automate these settings.
+
+### API Gateway Integration
+
+The API is configured to work with API Gateway using:
+- Stage: /default
+- Base path: /api/v1/deadpool
+- Example endpoint: https://[api-id].execute-api.[region].amazonaws.com/default/api/v1/deadpool/players
+
+Configuration requirements:
+- Use Lambda Proxy integration
+- Forward all requests to the Lambda function
+- Handle CORS if needed (already configured in the application)
+
+Note: The Mangum handler in lambda_function.py is configured with api_gateway_base_path="/default" to match the API Gateway stage.
+
 ## Data Migration Flow: CSV to DynamoDB
 
 This repository includes a data migration pipeline that transforms CSV data into DynamoDB records. The process involves two main steps:
