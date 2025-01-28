@@ -51,6 +51,70 @@ Configuration requirements:
 
 Note: The Mangum handler in lambda_function.py is configured with api_gateway_base_path="/default" to match the API Gateway stage.
 
+## CloudWatch Insights Queries
+
+The following CloudWatch Insights queries are useful for monitoring and troubleshooting the API:
+
+### 1. Monitor Draft Success Rate
+
+```text
+filter event_type = "BUSINESS" and event_name = "DRAFT_PICK"
+| stats count(*) as total,
+    count(status = "success") as successes,
+    count(status = "error") as failures,
+    (count(status = "success") * 100.0 / count(*)) as success_rate
+```
+
+### 2. Track API Performance by Endpoint
+
+```text
+filter event_type = "RESPONSE"
+| stats avg(response_time) as avg_latency_ms,
+    max(response_time) as max_latency_ms,
+    min(response_time) as min_latency_ms
+by endpoint
+| sort avg_latency_ms desc
+```
+
+### 3. Monitor Player Draft Activity
+
+```text
+filter event_type = "BUSINESS" and event_name = "DRAFT_PICK"
+| stats count(*) as pick_count,
+    avg(response_time) as avg_pick_time_ms
+by data.player_id, data.year
+| sort pick_count desc
+```
+
+### 4. Track Leaderboard Updates
+
+```text
+filter event_type = "BUSINESS" and event_name = "LEADERBOARD_UPDATE"
+| stats latest(data.score) as current_score,
+    latest(data.dead_picks) as dead_picks,
+    latest(data.total_picks) as total_picks
+by player_id, data.year
+| sort current_score desc
+```
+
+### 5. Error Analysis
+
+```text
+filter level = "ERROR"
+| stats count(*) as error_count,
+    count_distinct(request_id) as affected_requests
+by error_type
+| sort error_count desc
+```
+
+These queries help with:
+
+- Monitoring API health and performance
+- Tracking game progress and player activity
+- Identifying potential issues
+- Analyzing error patterns
+- Making data-driven improvements
+
 ## Data Migration Flow: CSV to DynamoDB
 
 This repository includes a data migration pipeline that transforms CSV data into DynamoDB records. The process involves two main steps:
