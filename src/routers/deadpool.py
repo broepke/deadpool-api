@@ -213,12 +213,80 @@ async def update_player_pick(
     """
     Update or create a pick for a specific player.
     """
-    db = DynamoDBClient()
-    updated_pick = await db.update_player_pick(player_id, updates.dict())
-    return {
-        "message": "Successfully updated player pick",
-        "data": [updated_pick],  # Wrap in list to match response model
-    }
+    with Timer() as timer:
+        try:
+            if not updates:
+                raise HTTPException(status_code=400, detail="Update data is required")
+
+            cwlogger.info(
+                "PLAYER_PICK_START",
+                f"Updating pick for player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "person_id": updates.person_id,
+                    "year": updates.year
+                }
+            )
+
+            db = DynamoDBClient()
+
+            # Verify player exists
+            player = await db.get_player(player_id)
+            if not player:
+                cwlogger.error(
+                    "PLAYER_PICK_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id}
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+
+            # Verify person exists
+            person = await db.get_person(updates.person_id)
+            if not person:
+                cwlogger.error(
+                    "PLAYER_PICK_ERROR",
+                    "Person not found",
+                    data={"person_id": updates.person_id}
+                )
+                raise HTTPException(status_code=404, detail="Person not found")
+
+            updated_pick = await db.update_player_pick(player_id, updates.dict())
+
+            cwlogger.info(
+                "PLAYER_PICK_COMPLETE",
+                f"Successfully updated pick for player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "player_name": player["name"],
+                    "person_id": updates.person_id,
+                    "person_name": person["name"],
+                    "year": updates.year,
+                    "timestamp": updated_pick["timestamp"],
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+
+            return {
+                "message": "Successfully updated player pick",
+                "data": [updated_pick],  # Wrap in list to match response model
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "PLAYER_PICK_ERROR",
+                "Unexpected error updating player pick",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while updating the player pick"
+            )
 
 
 @router.get("/picks", response_model=PickDetailResponse)
@@ -436,49 +504,6 @@ async def draft_person(draft_request: DraftRequest):
                 detail="An unexpected error occurred while processing the draft"
             )
 
-    # Get all people to check if person already exists
-    people = await db.get_people()
-    existing_person = next(
-        (p for p in people if p["name"].lower() == draft_request.name.lower()), None
-    )
-
-    # Get all picks for current year to check for duplicates
-    players = await db.get_players(current_year)
-    for player in players:
-        picks = await db.get_player_picks(player["id"], current_year)
-        for pick in picks:
-            picked_person = await db.get_person(pick["person_id"])
-            if (
-                picked_person
-                and picked_person["name"].lower() == draft_request.name.lower()
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{draft_request.name} has already been drafted for {current_year}",
-                )
-
-    # If person exists in database but wasn't picked this year, use their ID
-    if existing_person:
-        person_id = existing_person["id"]
-    else:
-        # Create new person with UUID
-        person_id = str(uuid.uuid4())
-        await db.update_person(person_id, {"name": draft_request.name})
-
-    # Create player pick entry
-    pick_update = {"person_id": person_id, "year": current_year}
-    player_pick = await db.update_player_pick(draft_request.player_id, pick_update)
-
-    return {
-        "message": "Successfully processed draft request",
-        "data": {
-            "person_id": person_id,
-            "name": draft_request.name,
-            "is_new": not existing_person,
-            "pick_timestamp": player_pick["timestamp"],
-        },
-    }
-
 
 @router.get("/draft-next", response_model=NextDrafterResponse)
 async def get_next_drafter():
@@ -488,57 +513,125 @@ async def get_next_drafter():
     2. Lowest draft order number for current year
     3. Total picks not exceeding 20 for active people
     """
-    db = DynamoDBClient()
-    year = datetime.now().year  # Current year for drafting
+    with Timer() as timer:
+        try:
+            db = DynamoDBClient()
+            year = datetime.now().year  # Current year for drafting
 
-    # Get all players for the current year
-    players = await db.get_players(year)
-    if not players:
-        raise HTTPException(status_code=404, detail="No players found for current year")
+            cwlogger.info(
+                "NEXT_DRAFTER_START",
+                "Determining next drafter",
+                data={"year": year}
+            )
 
-    # Get picks for each player and count active picks
-    player_data = []
-    for player in players:
-        picks = await db.get_player_picks(player["id"], year)
+            # Get all players for the current year
+            players = await db.get_players(year)
+            if not players:
+                cwlogger.warning(
+                    "NEXT_DRAFTER_ERROR",
+                    "No players found for current year",
+                    data={"year": year}
+                )
+                raise HTTPException(status_code=404, detail="No players found for current year")
 
-        # Count picks for active people only
-        active_pick_count = 0
-        for pick in picks:
-            person = await db.get_person(pick["person_id"])
-            if person and "DeathDate" not in person.get("metadata", {}):
-                active_pick_count += 1
+            # Get picks for each player and count active picks
+            player_data = []
+            for player in players:
+                picks = await db.get_player_picks(player["id"], year)
 
-        # Only include players who haven't reached 20 active picks
-        if active_pick_count < 20:
-            player_data.append(
-                {
-                    "id": player["id"],
-                    "name": player["name"],
-                    "draft_order": player["draft_order"],
-                    "pick_count": len(picks),
-                    "active_pick_count": active_pick_count,
+                # Count picks for active people only
+                active_pick_count = 0
+                for pick in picks:
+                    person = await db.get_person(pick["person_id"])
+                    if person and "DeathDate" not in person.get("metadata", {}):
+                        active_pick_count += 1
+
+                # Log player's pick status
+                cwlogger.info(
+                    "NEXT_DRAFTER_PLAYER",
+                    f"Analyzed picks for player {player['name']}",
+                    data={
+                        "player_id": player["id"],
+                        "player_name": player["name"],
+                        "draft_order": player["draft_order"],
+                        "total_picks": len(picks),
+                        "active_picks": active_pick_count,
+                        "year": year
+                    }
+                )
+
+                # Only include players who haven't reached 20 active picks
+                if active_pick_count < 20:
+                    player_data.append(
+                        {
+                            "id": player["id"],
+                            "name": player["name"],
+                            "draft_order": player["draft_order"],
+                            "pick_count": len(picks),
+                            "active_pick_count": active_pick_count,
+                        }
+                    )
+
+            if not player_data:
+                cwlogger.warning(
+                    "NEXT_DRAFTER_ERROR",
+                    "No eligible players found",
+                    data={
+                        "year": year,
+                        "total_players": len(players)
+                    }
+                )
+                raise HTTPException(status_code=404, detail="No eligible players found")
+
+            # Sort by pick count first, then by draft order
+            player_data.sort(key=lambda x: (x["pick_count"], x["draft_order"]))
+
+            # Return the first player (lowest draft order and least picks)
+            next_drafter = player_data[0]
+
+            cwlogger.info(
+                "NEXT_DRAFTER_COMPLETE",
+                f"Selected next drafter: {next_drafter['name']}",
+                data={
+                    "player_id": next_drafter["id"],
+                    "player_name": next_drafter["name"],
+                    "draft_order": next_drafter["draft_order"],
+                    "pick_count": next_drafter["pick_count"],
+                    "active_pick_count": next_drafter["active_pick_count"],
+                    "eligible_players": len(player_data),
+                    "year": year,
+                    "elapsed_ms": timer.elapsed_ms
                 }
             )
 
-    if not player_data:
-        raise HTTPException(status_code=404, detail="No eligible players found")
+            return {
+                "message": "Successfully determined next drafter",
+                "data": {
+                    "player_id": next_drafter["id"],
+                    "player_name": next_drafter["name"],
+                    "draft_order": next_drafter["draft_order"],
+                    "current_pick_count": next_drafter["pick_count"],
+                    "active_pick_count": next_drafter["active_pick_count"],
+                },
+            }
 
-    # Sort by pick count first, then by draft order
-    player_data.sort(key=lambda x: (x["pick_count"], x["draft_order"]))
-
-    # Return the first player (lowest draft order and least picks)
-    next_drafter = player_data[0]
-
-    return {
-        "message": "Successfully determined next drafter",
-        "data": {
-            "player_id": next_drafter["id"],
-            "player_name": next_drafter["name"],
-            "draft_order": next_drafter["draft_order"],
-            "current_pick_count": next_drafter["pick_count"],
-            "active_pick_count": next_drafter["active_pick_count"],
-        },
-    }
+        except HTTPException:
+            # Re-raise HTTP exceptions (they're already logged)
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "NEXT_DRAFTER_ERROR",
+                "Unexpected error determining next drafter",
+                error=e,
+                data={
+                    "year": year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while determining the next drafter"
+            )
 
 
 @router.get("/leaderboard", response_model=LeaderboardResponse)
@@ -553,44 +646,89 @@ async def get_leaderboard(
     Players are scored based on their dead celebrity picks:
     Score = sum of (50 + (100 - Age)) for each dead celebrity
     """
-    # Use current year if none specified
-    target_year = year if year else datetime.now().year
-    """
-    Get the leaderboard for a specific year.
-    Players are scored based on their dead celebrity picks:
-    Score = sum of (50 + (100 - Age)) for each dead celebrity
-    """
-    db = DynamoDBClient()
+    with Timer() as timer:
+        try:
+            # Use current year if none specified
+            target_year = year if year else datetime.now().year
 
-    # Get all players for the year
-    players = await db.get_players(target_year)
+            cwlogger.info(
+                "LEADERBOARD_START",
+                f"Calculating leaderboard for year {target_year}",
+                data={"year": target_year}
+            )
 
-    # Calculate scores for each player
-    leaderboard_entries = []
-    for player in players:
-        total_score = 0
-        # Get all picks for this player in the year
-        picks = await db.get_player_picks(player["id"], target_year)
+            db = DynamoDBClient()
 
-        # Calculate score for each pick
-        for pick in picks:
-            person = await db.get_person(pick["person_id"])
-            if person and person.get("metadata", {}).get("DeathDate"):
-                # Person is dead, calculate score
-                age = person.get("metadata", {}).get("Age", 0)
-                pick_score = 50 + (100 - age)
-                total_score += pick_score
+            # Get all players for the year
+            players = await db.get_players(target_year)
 
-        # Create leaderboard entry
-        entry = LeaderboardEntry(
-            player_id=player["id"], player_name=player["name"], score=total_score
-        )
-        leaderboard_entries.append(entry)
+            # Calculate scores for each player
+            leaderboard_entries = []
+            for player in players:
+                total_score = 0
+                # Get all picks for this player in the year
+                picks = await db.get_player_picks(player["id"], target_year)
 
-    # Sort by score (highest first)
-    leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
+                # Calculate score for each pick
+                dead_picks = 0
+                for pick in picks:
+                    person = await db.get_person(pick["person_id"])
+                    if person and person.get("metadata", {}).get("DeathDate"):
+                        # Person is dead, calculate score
+                        age = person.get("metadata", {}).get("Age", 0)
+                        pick_score = 50 + (100 - age)
+                        total_score += pick_score
+                        dead_picks += 1
 
-    return {
-        "message": "Successfully retrieved leaderboard",
-        "data": leaderboard_entries,
-    }
+                # Create leaderboard entry
+                entry = LeaderboardEntry(
+                    player_id=player["id"], player_name=player["name"], score=total_score
+                )
+                leaderboard_entries.append(entry)
+
+                cwlogger.info(
+                    "LEADERBOARD_PLAYER",
+                    f"Calculated score for player {player['name']}",
+                    data={
+                        "player_id": player["id"],
+                        "player_name": player["name"],
+                        "score": total_score,
+                        "total_picks": len(picks),
+                        "dead_picks": dead_picks,
+                        "year": target_year
+                    }
+                )
+
+            # Sort by score (highest first)
+            leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
+
+            cwlogger.info(
+                "LEADERBOARD_COMPLETE",
+                f"Generated leaderboard for year {target_year}",
+                data={
+                    "year": target_year,
+                    "player_count": len(leaderboard_entries),
+                    "top_score": leaderboard_entries[0].score if leaderboard_entries else 0,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+
+            return {
+                "message": "Successfully retrieved leaderboard",
+                "data": leaderboard_entries,
+            }
+
+        except Exception as e:
+            cwlogger.error(
+                "LEADERBOARD_ERROR",
+                "Error generating leaderboard",
+                error=e,
+                data={
+                    "year": target_year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while generating the leaderboard"
+            )
