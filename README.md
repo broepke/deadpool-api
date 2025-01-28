@@ -177,6 +177,64 @@ The shell script handles the actual data loading:
 
 Note: Ensure you have AWS credentials configured with appropriate permissions to write to DynamoDB.
 
+## Name Matching System
+
+The API uses a robust fuzzy name matching system to handle variations in celebrity name entries. This system helps prevent duplicate entries and improves draft pick accuracy.
+
+### Name Matching Features
+
+- Case-insensitive matching
+- Punctuation normalization (removing/standardizing periods, commas)
+- Suffix standardization (Jr./Jr, III/3, etc.)
+- Fuzzy matching using the RapidFuzz algorithm
+
+### Configuration Parameters
+
+The name matching system is configured with the following parameters (located in `src/utils/name_matching.py`):
+
+```python
+NAME_MATCHING_CONFIG = {
+    'similarity_threshold': 0.85,  # Minimum similarity score to consider a match
+    'min_length_for_fuzzy': 4,    # Minimum name length to apply fuzzy matching
+    'suffix_map': {               # Standardization mappings
+        'jr.': 'jr',
+        'sr.': 'sr',
+        'junior': 'jr',
+        'senior': 'sr',
+        'iii': '3',
+        'ii': '2'
+    }
+}
+```
+
+- `similarity_threshold` (0.85): Names with a similarity score ≥ 85% are considered matches
+- `min_length_for_fuzzy` (4): Names shorter than 4 characters skip fuzzy matching and require exact matches
+- `suffix_map`: Standardizes common name suffixes for consistent matching
+
+### How It Works
+
+1. **Name Normalization**
+   - Converts to lowercase
+   - Removes/standardizes punctuation
+   - Standardizes multiple spaces
+   - Normalizes common suffixes
+
+2. **Matching Process**
+   - First checks for exact matches after normalization
+   - For names ≥ 4 characters, applies fuzzy matching
+   - Calculates similarity score using RapidFuzz ratio
+   - Returns match details including similarity score
+
+3. **Match Results**
+   Returns a dictionary with:
+   - `match`: Boolean indicating if names are considered a match
+   - `similarity`: Float score between 0 and 1
+   - `normalized1`: Normalized version of first name
+   - `normalized2`: Normalized version of second name
+   - `exact_match`: Boolean indicating exact match after normalization
+
+This system is particularly useful in the draft endpoint where it helps prevent duplicate celebrity entries with slightly different spellings.
+
 ## Starting the Web Server
 
 ```bash
