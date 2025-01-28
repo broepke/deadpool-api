@@ -1,8 +1,15 @@
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.routers import deadpool
 from src.models.deadpool import RoutesResponse
+from src.middleware.logging import LoggingMiddleware
+from src.utils.logging import cwlogger
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="Deadpool API",
@@ -13,12 +20,31 @@ app = FastAPI(
     openapi_url="/openapi.json"
 )
 
+# Add logging middleware first
+app.add_middleware(LoggingMiddleware)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Global exception handler to ensure all errors are logged."""
+    cwlogger.error(
+        "UNHANDLED_ERROR",
+        "An unhandled error occurred",
+        error=exc,
+        data={
+            "path": request.url.path,
+            "method": request.method
+        }
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred"}
+    )
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://deadpool.dataknowsall.com",  # Production frontend
-        "http://localhost:3000",  # Local development
         "http://localhost:5173",  # Vite default port
     ],
     allow_credentials=True,

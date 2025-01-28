@@ -21,6 +21,7 @@ from ..models.deadpool import (
     DraftResponse,
 )
 from ..utils.dynamodb import DynamoDBClient
+from ..utils.logging import cwlogger, Timer
 
 router = APIRouter(
     prefix="/api/v1/deadpool",
@@ -294,16 +295,146 @@ async def draft_person(draft_request: DraftRequest):
     3. Creates new person entry if not found in database
     4. Creates player pick entry for the drafting player
     """
-    db = DynamoDBClient()
-    current_year = datetime.now().year
+    with Timer() as timer:
+        try:
+            db = DynamoDBClient()
+            current_year = datetime.now().year
 
-    # Verify player exists
-    player = await db.get_player(draft_request.player_id)
-    if not player:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Player with ID {draft_request.player_id} not found",
-        )
+            cwlogger.info(
+                "DRAFT_START",
+                f"Starting draft process for {draft_request.name}",
+                data={
+                    "player_id": draft_request.player_id,
+                    "person_name": draft_request.name,
+                    "year": current_year
+                }
+            )
+
+            # Verify player exists
+            player = await db.get_player(draft_request.player_id)
+            if not player:
+                cwlogger.error(
+                    "DRAFT_ERROR",
+                    "Player not found",
+                    data={
+                        "player_id": draft_request.player_id,
+                        "person_name": draft_request.name,
+                        "year": current_year
+                    }
+                )
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Player with ID {draft_request.player_id} not found",
+                )
+
+            # Get all people to check if person already exists
+            people = await db.get_people()
+            existing_person = next(
+                (p for p in people if p["name"].lower() == draft_request.name.lower()),
+                None
+            )
+
+            # Get all picks for current year to check for duplicates
+            players = await db.get_players(current_year)
+            for player in players:
+                picks = await db.get_player_picks(player["id"], current_year)
+                for pick in picks:
+                    picked_person = await db.get_person(pick["person_id"])
+                    if (
+                        picked_person
+                        and picked_person["name"].lower() == draft_request.name.lower()
+                    ):
+                        cwlogger.warning(
+                            "DRAFT_DUPLICATE",
+                            f"Attempted to draft already picked person",
+                            data={
+                                "person_name": draft_request.name,
+                                "year": current_year,
+                                "existing_pick": {
+                                    "player_id": player["id"],
+                                    "player_name": player["name"],
+                                    "pick_timestamp": pick.get("timestamp")
+                                }
+                            }
+                        )
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"{draft_request.name} has already been drafted for {current_year}",
+                        )
+
+            # If person exists in database but wasn't picked this year, use their ID
+            if existing_person:
+                person_id = existing_person["id"]
+                cwlogger.info(
+                    "DRAFT_PERSON",
+                    f"Using existing person record",
+                    data={
+                        "person_id": person_id,
+                        "person_name": draft_request.name,
+                        "is_new": False
+                    }
+                )
+            else:
+                # Create new person with UUID
+                person_id = str(uuid.uuid4())
+                await db.update_person(person_id, {"name": draft_request.name})
+                cwlogger.info(
+                    "DRAFT_PERSON",
+                    f"Created new person record",
+                    data={
+                        "person_id": person_id,
+                        "person_name": draft_request.name,
+                        "is_new": True
+                    }
+                )
+
+            # Create player pick entry
+            pick_update = {"person_id": person_id, "year": current_year}
+            player_pick = await db.update_player_pick(draft_request.player_id, pick_update)
+
+            cwlogger.info(
+                "DRAFT_COMPLETE",
+                f"Successfully completed draft",
+                data={
+                    "player_id": draft_request.player_id,
+                    "person_id": person_id,
+                    "person_name": draft_request.name,
+                    "year": current_year,
+                    "is_new_person": not existing_person,
+                    "pick_timestamp": player_pick["timestamp"],
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+
+            return {
+                "message": "Successfully processed draft request",
+                "data": {
+                    "person_id": person_id,
+                    "name": draft_request.name,
+                    "is_new": not existing_person,
+                    "pick_timestamp": player_pick["timestamp"],
+                },
+            }
+
+        except HTTPException:
+            # Re-raise HTTP exceptions (they're already logged)
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "DRAFT_ERROR",
+                "Unexpected error during draft process",
+                error=e,
+                data={
+                    "player_id": draft_request.player_id,
+                    "person_name": draft_request.name,
+                    "year": current_year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An unexpected error occurred while processing the draft"
+            )
 
     # Get all people to check if person already exists
     people = await db.get_people()

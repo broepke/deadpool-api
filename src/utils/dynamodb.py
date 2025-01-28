@@ -4,6 +4,7 @@ from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from datetime import datetime
 from fastapi import HTTPException
+from .logging import cwlogger, Timer
 
 
 class DynamoDBClient:
@@ -14,6 +15,7 @@ class DynamoDBClient:
     def __init__(self, table_name: str = "Deadpool"):
         self.dynamodb = boto3.resource("dynamodb")
         self.table = self.dynamodb.Table(table_name)
+        self.table_name = table_name
 
     def _transform_person(self, item: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -60,19 +62,146 @@ class DynamoDBClient:
         # Default to current year if not specified
         target_year = year if year else datetime.now().year
 
-        # First get draft order records for the year
-        params = {
-            "KeyConditionExpression": "PK = :year_key",
-            "ExpressionAttributeValues": {":year_key": f"YEAR#{target_year}"},
-        }
+        with Timer() as timer:
+            try:
+                # First get draft order records for the year
+                params = {
+                    "KeyConditionExpression": "PK = :year_key",
+                    "ExpressionAttributeValues": {":year_key": f"YEAR#{target_year}"},
+                }
 
-        # Use query instead of scan since we're using the partition key
-        response = self.table.query(**params)
-        draft_orders = response.get("Items", [])
+                # Use query instead of scan since we're using the partition key
+                response = self.table.query(**params)
+                draft_orders = response.get("Items", [])
 
-        if not draft_orders:
-            print(f"No draft orders found for year {target_year}")
-            return []
+                if not draft_orders:
+                    cwlogger.info(
+                        "DB_QUERY",
+                        f"No draft orders found for year {target_year}",
+                        data={
+                            "table": self.table_name,
+                            "year": target_year,
+                            "elapsed_ms": timer.elapsed_ms
+                        }
+                    )
+                    return []
+
+                cwlogger.info(
+                    "DB_QUERY",
+                    f"Retrieved {len(draft_orders)} draft orders for year {target_year}",
+                    data={
+                        "table": self.table_name,
+                        "operation": "query",
+                        "year": target_year,
+                        "item_count": len(draft_orders),
+                        "consumed_capacity": response.get("ConsumedCapacity"),
+                        "elapsed_ms": timer.elapsed_ms
+                    }
+                )
+
+                # Extract player IDs and draft orders
+                player_info = []
+                for order in draft_orders:
+                    # SK format: ORDER#{draft_order}#PLAYER#{player_id}
+                    parts = order["SK"].split("#")
+                    if len(parts) >= 4:
+                        draft_order = int(parts[1])
+                        player_id = parts[3]
+                        player_info.append((player_id, draft_order))
+
+                if not player_info:
+                    cwlogger.warning(
+                        "DB_QUERY",
+                        "No valid player info extracted from draft orders",
+                        data={
+                            "table": self.table_name,
+                            "year": target_year,
+                            "draft_orders_count": len(draft_orders)
+                        }
+                    )
+                    return []
+
+                # Get player details
+                transformed_players = []
+                for player_id, draft_order in player_info:
+                    try:
+                        # Get player details
+                        player_response = self.table.get_item(
+                            Key={"PK": f"PLAYER#{player_id}", "SK": "DETAILS"}
+                        )
+                        player = player_response.get("Item")
+
+                        if not player:
+                            cwlogger.warning(
+                                "DB_GET",
+                                f"No details found for player {player_id}",
+                                data={
+                                    "table": self.table_name,
+                                    "player_id": player_id,
+                                    "year": target_year
+                                }
+                            )
+                            continue
+
+                        # Transform player data
+                        transformed = {
+                            "id": player_id,
+                            "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
+                            "draft_order": draft_order,
+                            "year": target_year,
+                            "metadata": {
+                                k: (
+                                    int(v)
+                                    if isinstance(v, Decimal) and v % 1 == 0
+                                    else float(v)
+                                    if isinstance(v, Decimal)
+                                    else v
+                                )
+                                for k, v in player.items()
+                                if k not in ["PK", "SK", "FirstName", "LastName"]
+                            },
+                        }
+                        transformed_players.append(transformed)
+                    except Exception as e:
+                        cwlogger.error(
+                            "DB_ERROR",
+                            f"Error processing player {player_id}",
+                            error=e,
+                            data={
+                                "table": self.table_name,
+                                "player_id": player_id,
+                                "year": target_year
+                            }
+                        )
+
+                # Sort by draft order
+                transformed_players.sort(key=lambda x: x["draft_order"])
+                
+                cwlogger.info(
+                    "DB_OPERATION",
+                    f"Successfully retrieved {len(transformed_players)} players for year {target_year}",
+                    data={
+                        "table": self.table_name,
+                        "year": target_year,
+                        "player_count": len(transformed_players),
+                        "elapsed_ms": timer.elapsed_ms
+                    }
+                )
+                
+                return transformed_players
+
+            except Exception as e:
+                cwlogger.error(
+                    "DB_ERROR",
+                    "Error retrieving players",
+                    error=e,
+                    data={
+                        "table": self.table_name,
+                        "year": target_year,
+                        "elapsed_ms": timer.elapsed_ms
+                    }
+                )
+                return []
 
         # Extract player IDs and draft orders
         player_info = []
