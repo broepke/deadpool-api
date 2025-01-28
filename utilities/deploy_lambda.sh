@@ -39,12 +39,4 @@ rm -rf lvenv package
 echo "🚀 Deploying to AWS Lambda..."
 aws lambda update-function-code --function-name Deadpool-app --zip-file fileb://lambda_function.zip
 
-# echo "⚙️ Updating Lambda configuration..."
-# aws lambda update-function-configuration \
-#     --function-name Deadpool-app \
-#     --handler lambda_function.lambda_handler \
-#     --runtime python3.9 \
-#     --timeout 30 \
-#     --memory-size 256
-
 echo "✅ Deployment complete!"
