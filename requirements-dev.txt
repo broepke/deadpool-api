@@ -6,3 +6,4 @@ pandas
 pydantic
 mangum
 uvicorn
+python-Levenshtein

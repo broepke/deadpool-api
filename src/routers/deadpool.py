@@ -22,6 +22,7 @@ from ..models.deadpool import (
 )
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
+from ..utils.name_matching import names_match
 
 router = APIRouter(
     prefix="/api/v1/deadpool",
@@ -835,10 +836,28 @@ async def draft_person(draft_request: DraftRequest):
 
             # Get all people to check if person already exists
             people = await db.get_people()
-            existing_person = next(
-                (p for p in people if p["name"].lower() == draft_request.name.lower()),
-                None,
-            )
+            
+            # Use fuzzy name matching to find existing person
+            existing_person = None
+            best_match_score = 0
+            for person in people:
+                match_result = names_match(person["name"], draft_request.name)
+                if match_result["match"] and match_result["similarity"] > best_match_score:
+                    existing_person = person
+                    best_match_score = match_result["similarity"]
+                    
+                    cwlogger.info(
+                        "DRAFT_NAME_MATCH",
+                        "Found matching person",
+                        data={
+                            "input_name": draft_request.name,
+                            "matched_name": person["name"],
+                            "normalized_input": match_result["normalized1"],
+                            "normalized_match": match_result["normalized2"],
+                            "similarity": match_result["similarity"],
+                            "exact_match": match_result["exact_match"]
+                        }
+                    )
 
             # Get all picks for current year to check for duplicates
             players = await db.get_players(current_year)
@@ -846,27 +865,28 @@ async def draft_person(draft_request: DraftRequest):
                 picks = await db.get_player_picks(player["id"], current_year)
                 for pick in picks:
                     picked_person = await db.get_person(pick["person_id"])
-                    if (
-                        picked_person
-                        and picked_person["name"].lower() == draft_request.name.lower()
-                    ):
-                        cwlogger.warning(
-                            "DRAFT_DUPLICATE",
-                            "Attempted to draft already picked person",
-                            data={
-                                "person_name": draft_request.name,
-                                "year": current_year,
-                                "existing_pick": {
-                                    "player_id": player["id"],
-                                    "player_name": player["name"],
-                                    "pick_timestamp": pick.get("timestamp"),
+                    if picked_person:
+                        match_result = names_match(picked_person["name"], draft_request.name)
+                        if match_result["match"]:
+                            cwlogger.warning(
+                                "DRAFT_DUPLICATE",
+                                "Attempted to draft already picked person",
+                                data={
+                                    "person_name": draft_request.name,
+                                    "matched_name": picked_person["name"],
+                                    "year": current_year,
+                                    "similarity": match_result["similarity"],
+                                    "existing_pick": {
+                                        "player_id": player["id"],
+                                        "player_name": player["name"],
+                                        "pick_timestamp": pick.get("timestamp"),
+                                    },
                                 },
-                            },
-                        )
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"{draft_request.name} has already been drafted for {current_year}",
-                        )
+                            )
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"{draft_request.name} (or similar name) has already been drafted for {current_year}",
+                            )
 
             # If person exists in database but wasn't picked this year, use their ID
             if existing_person:
@@ -877,6 +897,8 @@ async def draft_person(draft_request: DraftRequest):
                     data={
                         "person_id": person_id,
                         "person_name": draft_request.name,
+                        "matched_name": existing_person["name"],
+                        "similarity": best_match_score,
                         "is_new": False,
                     },
                 )
@@ -925,7 +947,6 @@ async def draft_person(draft_request: DraftRequest):
             }
 
         except HTTPException:
-            # Re-raise HTTP exceptions (they're already logged)
             raise
         except Exception as e:
             cwlogger.error(
