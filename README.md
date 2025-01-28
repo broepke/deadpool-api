@@ -38,11 +38,13 @@ The API can be deployed as an AWS Lambda function using the provided deployment 
 ### API Gateway Integration
 
 The API is configured to work with API Gateway using:
+
 - Stage: /default
 - Base path: /api/v1/deadpool
 - Example endpoint: https://[api-id].execute-api.[region].amazonaws.com/default/api/v1/deadpool/players
 
 Configuration requirements:
+
 - Use Lambda Proxy integration
 - Forward all requests to the Lambda function
 - Handle CORS if needed (already configured in the application)
@@ -53,7 +55,23 @@ Note: The Mangum handler in lambda_function.py is configured with api_gateway_ba
 
 This repository includes a data migration pipeline that transforms CSV data into DynamoDB records. The process involves two main steps:
 
-### 1. CSV to JSON Conversion (utilities/csv_to_json.py)
+### 1. DynamoDB Table Creation
+
+The following command will create the proper DynamoDB table structure.
+
+```bash
+aws dynamodb create-table \
+    --table-name Deadpool \
+    --attribute-definitions \
+        AttributeName=PK,AttributeType=S \
+        AttributeName=SK,AttributeType=S \
+    --key-schema \
+        AttributeName=PK,KeyType=HASH \
+        AttributeName=SK,KeyType=RANGE \
+    --billing-mode PAY_PER_REQUEST
+```
+
+### 2. CSV to JSON Conversion (utilities/csv_to_json.py)
 
 The Python script processes four source CSV files:
 
@@ -70,7 +88,7 @@ The script:
 - Splits data into batches of 25 items (DynamoDB batch write limit)
 - Outputs JSON files to `data/dynamodb_json_files/` directory
 
-### 2. DynamoDB Loading (utilities/bulk_load_dynamodb.sh)
+### 3. DynamoDB Loading (utilities/bulk_load_dynamodb.sh)
 
 The shell script handles the actual data loading:
 
@@ -78,7 +96,7 @@ The shell script handles the actual data loading:
 - Processes each batch file sequentially
 - Loads data in sections: Players, People, DraftOrder, and PlayerPicks
 
-### Running the Migration
+### 4. Running the Migration
 
 1. Ensure your CSV files are in the `data/` directory
 2. Convert CSV to JSON:
