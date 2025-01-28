@@ -2,7 +2,7 @@
 Utility module for robust name matching with normalization and fuzzy matching capabilities.
 """
 from typing import Dict, Optional
-from Levenshtein import ratio
+from rapidfuzz.fuzz import ratio
 
 # Configuration for name matching
 NAME_MATCHING_CONFIG = {
@@ -53,7 +53,7 @@ def normalize_name(name: str) -> str:
 
 def calculate_similarity(name1: str, name2: str) -> float:
     """
-    Calculate similarity score between two names using Levenshtein ratio.
+    Calculate similarity score between two names using rapidfuzz ratio.
     
     Args:
         name1: First name to compare
@@ -68,7 +68,7 @@ def calculate_similarity(name1: str, name2: str) -> float:
     if not name1 or not name2:
         return 0.0
         
-    return ratio(name1, name2)
+    return ratio(name1, name2) / 100.0  # Convert rapidfuzz's 0-100 score to 0-1
 
 def names_match(name1: str, name2: str, threshold: Optional[float] = None) -> Dict:
     """

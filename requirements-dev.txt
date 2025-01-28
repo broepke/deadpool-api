@@ -1,9 +1,8 @@
 fastapi
 boto3
-streamlit
 requests
 pandas
 pydantic
 mangum
 uvicorn
-python-Levenshtein
+rapidfuzz
