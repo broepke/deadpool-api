@@ -959,14 +959,14 @@ async def get_next_drafter():
             year = datetime.now().year  # Current year for drafting
 
             cwlogger.info(
-                "NEXT_DRAFTER_START", "Determining next drafter", data={"year": year}
+                "GET_NEXT_DRAFTER_START", "Determining next drafter", data={"year": year}
             )
 
             # Get all players for the current year
             players = await db.get_players(year)
             if not players:
                 cwlogger.warning(
-                    "NEXT_DRAFTER_ERROR",
+                    "GET_NEXT_DRAFTER_ERROR",
                     "No players found for current year",
                     data={"year": year},
                 )
@@ -988,7 +988,7 @@ async def get_next_drafter():
 
                 # Log player's pick status
                 cwlogger.info(
-                    "NEXT_DRAFTER_PLAYER",
+                    "GET_NEXT_DRAFTER_PLAYER",
                     f"Analyzed picks for player {player['name']}",
                     data={
                         "player_id": player["id"],
@@ -1014,7 +1014,7 @@ async def get_next_drafter():
 
             if not player_data:
                 cwlogger.warning(
-                    "NEXT_DRAFTER_ERROR",
+                    "GET_NEXT_DRAFTER_ERROR",
                     "No eligible players found",
                     data={"year": year, "total_players": len(players)},
                 )
@@ -1027,7 +1027,7 @@ async def get_next_drafter():
             next_drafter = player_data[0]
 
             cwlogger.info(
-                "NEXT_DRAFTER_COMPLETE",
+                "GET_NEXT_DRAFTER_COMPLETE",
                 f"Selected next drafter: {next_drafter['name']}",
                 data={
                     "player_id": next_drafter["id"],
@@ -1057,7 +1057,7 @@ async def get_next_drafter():
             raise
         except Exception as e:
             cwlogger.error(
-                "NEXT_DRAFTER_ERROR",
+                "GET_NEXT_DRAFTER_ERROR",
                 "Unexpected error determining next drafter",
                 error=e,
                 data={"year": year, "elapsed_ms": timer.elapsed_ms},
