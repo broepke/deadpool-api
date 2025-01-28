@@ -414,7 +414,7 @@ async def draft_person(draft_request: DraftRequest):
                     ):
                         cwlogger.warning(
                             "DRAFT_DUPLICATE",
-                            f"Attempted to draft already picked person",
+                            "Attempted to draft already picked person",
                             data={
                                 "person_name": draft_request.name,
                                 "year": current_year,
@@ -435,7 +435,7 @@ async def draft_person(draft_request: DraftRequest):
                 person_id = existing_person["id"]
                 cwlogger.info(
                     "DRAFT_PERSON",
-                    f"Using existing person record",
+                    "Using existing person record",
                     data={
                         "person_id": person_id,
                         "person_name": draft_request.name,
@@ -448,7 +448,7 @@ async def draft_person(draft_request: DraftRequest):
                 await db.update_person(person_id, {"name": draft_request.name})
                 cwlogger.info(
                     "DRAFT_PERSON",
-                    f"Created new person record",
+                    "Created new person record",
                     data={
                         "person_id": person_id,
                         "person_name": draft_request.name,
@@ -462,7 +462,7 @@ async def draft_person(draft_request: DraftRequest):
 
             cwlogger.info(
                 "DRAFT_COMPLETE",
-                f"Successfully completed draft",
+                "Successfully completed draft",
                 data={
                     "player_id": draft_request.player_id,
                     "person_id": person_id,

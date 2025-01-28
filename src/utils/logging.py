@@ -5,12 +5,20 @@ import uuid
 from datetime import datetime
 from typing import Any, Dict, Optional
 
-# Configure the root logger
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(message)s'  # Raw message format since we'll use JSON
-)
-logger = logging.getLogger('deadpool-api')
+import sys
+
+# Configure the root logger for Lambda environment
+root = logging.getLogger()
+if root.handlers:
+    for handler in root.handlers:
+        root.removeHandler(handler)
+
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(message)s'))  # Raw message format for JSON
+root.addHandler(handler)
+root.setLevel(logging.INFO)
+
+logger = root  # Use root logger to ensure Lambda captures all logs
 
 class CloudWatchLogger:
     """
