@@ -35,12 +35,41 @@ async def get_routes():
     """
     Get all available API routes.
     """
-    routes = []
-    for route in router.routes:
-        # Skip the root endpoint itself to avoid recursion
-        if route.path != "/api/v1/deadpool/":
-            routes.append({"path": f"/api/v1/deadpool{route.path}", "name": route.name})
-    return {"message": "Successfully retrieved available routes", "routes": routes}
+    with Timer() as timer:
+        try:
+            cwlogger.info(
+                "GET_ROUTES_START",
+                "Retrieving available API routes"
+            )
+            
+            routes = []
+            for route in router.routes:
+                # Skip the root endpoint itself to avoid recursion
+                if route.path != "/api/v1/deadpool/":
+                    routes.append({"path": f"/api/v1/deadpool{route.path}", "name": route.name})
+            
+            cwlogger.info(
+                "GET_ROUTES_COMPLETE",
+                f"Retrieved {len(routes)} routes",
+                data={
+                    "route_count": len(routes),
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved available routes", "routes": routes}
+            
+        except Exception as e:
+            cwlogger.error(
+                "GET_ROUTES_ERROR",
+                "Error retrieving routes",
+                error=e,
+                data={"elapsed_ms": timer.elapsed_ms}
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving routes"
+            )
 
 
 @router.get("/players", response_model=PlayerResponse)
@@ -51,9 +80,45 @@ async def get_players(
     Get current players for a given year, sorted by draft order.
     Players are considered current if they have a draft order > 0.
     """
-    db = DynamoDBClient()
-    players = await db.get_players(year)
-    return {"message": "Successfully retrieved players", "data": players}
+    with Timer() as timer:
+        try:
+            target_year = year if year else datetime.now().year
+            
+            cwlogger.info(
+                "GET_PLAYERS_START",
+                f"Retrieving players for year {target_year}",
+                data={"year": target_year}
+            )
+            
+            db = DynamoDBClient()
+            players = await db.get_players(target_year)
+            
+            cwlogger.info(
+                "GET_PLAYERS_COMPLETE",
+                f"Retrieved {len(players)} players",
+                data={
+                    "year": target_year,
+                    "player_count": len(players),
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved players", "data": players}
+            
+        except Exception as e:
+            cwlogger.error(
+                "GET_PLAYERS_ERROR",
+                "Error retrieving players",
+                error=e,
+                data={
+                    "year": target_year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving players"
+            )
 
 
 @router.get("/players/{player_id}", response_model=SinglePlayerResponse)
@@ -66,11 +131,63 @@ async def get_player(
     """
     Get a specific player's information.
     """
-    db = DynamoDBClient()
-    player = await db.get_player(player_id, year)
-    if not player:
-        raise HTTPException(status_code=404, detail="Player not found")
-    return {"message": "Successfully retrieved player", "data": player}
+    with Timer() as timer:
+        try:
+            target_year = year if year else datetime.now().year
+            
+            cwlogger.info(
+                "GET_PLAYER_START",
+                f"Retrieving player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "year": target_year
+                }
+            )
+            
+            db = DynamoDBClient()
+            player = await db.get_player(player_id, target_year)
+            
+            if not player:
+                cwlogger.warning(
+                    "GET_PLAYER_ERROR",
+                    f"Player not found",
+                    data={
+                        "player_id": player_id,
+                        "year": target_year
+                    }
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+                
+            cwlogger.info(
+                "GET_PLAYER_COMPLETE",
+                f"Retrieved player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "player_name": player["name"],
+                    "year": target_year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved player", "data": player}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "GET_PLAYER_ERROR",
+                "Error retrieving player",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "year": target_year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving player"
+            )
 
 
 @router.put("/players/{player_id}", response_model=PlayerResponse)
@@ -86,25 +203,82 @@ async def update_player(
     - draft_order: Player's draft position
     - year: Draft year
     """
-    # Validate required fields for new players
-    existing_player = await DynamoDBClient().get_player(player_id)
-    if not existing_player:
-        if (
-            not updates
-            or not updates.name
-            or updates.draft_order is None
-            or updates.year is None
-        ):
-            raise HTTPException(
-                status_code=400,
-                detail="New players require name, draft_order, and year",
+    with Timer() as timer:
+        try:
+            if not updates:
+                cwlogger.warning(
+                    "UPDATE_PLAYER_ERROR",
+                    "No update data provided",
+                    data={"player_id": player_id}
+                )
+                raise HTTPException(status_code=400, detail="Update data is required")
+
+            cwlogger.info(
+                "UPDATE_PLAYER_START",
+                f"{'Creating' if player_id == 'new' else 'Updating'} player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "updates": updates.dict(exclude_unset=True)
+                }
             )
-    db = DynamoDBClient()
-    updated_player = await db.update_player(player_id, updates.dict(exclude_unset=True))
-    return {
-        "message": "Successfully updated player",
-        "data": [updated_player],  # Wrap in list to match response model
-    }
+
+            # Validate required fields for new players
+            existing_player = await DynamoDBClient().get_player(player_id)
+            if not existing_player:
+                if (
+                    not updates.name
+                    or updates.draft_order is None
+                    or updates.year is None
+                ):
+                    cwlogger.warning(
+                        "UPDATE_PLAYER_ERROR",
+                        "Missing required fields for new player",
+                        data={
+                            "player_id": player_id,
+                            "provided_fields": updates.dict(exclude_unset=True)
+                        }
+                    )
+                    raise HTTPException(
+                        status_code=400,
+                        detail="New players require name, draft_order, and year",
+                    )
+
+            db = DynamoDBClient()
+            updated_player = await db.update_player(player_id, updates.dict(exclude_unset=True))
+
+            cwlogger.info(
+                "UPDATE_PLAYER_COMPLETE",
+                f"Successfully {'created' if not existing_player else 'updated'} player",
+                data={
+                    "player_id": player_id,
+                    "player_name": updated_player["name"],
+                    "is_new": not existing_player,
+                    "year": updates.year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+
+            return {
+                "message": "Successfully updated player",
+                "data": [updated_player],  # Wrap in list to match response model
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "UPDATE_PLAYER_ERROR",
+                "Error updating player",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while updating player"
+            )
 
 
 @router.get("/people", response_model=PersonResponse)
@@ -112,9 +286,38 @@ async def get_people():
     """
     Get a list of all people in the deadpool.
     """
-    db = DynamoDBClient()
-    people = await db.get_people()
-    return {"message": "Successfully retrieved people", "data": people}
+    with Timer() as timer:
+        try:
+            cwlogger.info(
+                "GET_PEOPLE_START",
+                "Retrieving all people"
+            )
+            
+            db = DynamoDBClient()
+            people = await db.get_people()
+            
+            cwlogger.info(
+                "GET_PEOPLE_COMPLETE",
+                f"Retrieved {len(people)} people",
+                data={
+                    "total_count": len(people),
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved people", "data": people}
+            
+        except Exception as e:
+            cwlogger.error(
+                "GET_PEOPLE_ERROR",
+                "Error retrieving people",
+                error=e,
+                data={"elapsed_ms": timer.elapsed_ms}
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving people"
+            )
 
 
 @router.get("/people/{person_id}", response_model=SinglePersonResponse)
@@ -124,11 +327,54 @@ async def get_person(
     """
     Get a specific person's information.
     """
-    db = DynamoDBClient()
-    person = await db.get_person(person_id)
-    if not person:
-        raise HTTPException(status_code=404, detail="Person not found")
-    return {"message": "Successfully retrieved person", "data": person}
+    with Timer() as timer:
+        try:
+            cwlogger.info(
+                "GET_PERSON_START",
+                f"Retrieving person {person_id}",
+                data={"person_id": person_id}
+            )
+            
+            db = DynamoDBClient()
+            person = await db.get_person(person_id)
+            
+            if not person:
+                cwlogger.warning(
+                    "GET_PERSON_ERROR",
+                    "Person not found",
+                    data={"person_id": person_id}
+                )
+                raise HTTPException(status_code=404, detail="Person not found")
+                
+            cwlogger.info(
+                "GET_PERSON_COMPLETE",
+                f"Retrieved person {person_id}",
+                data={
+                    "person_id": person_id,
+                    "person_name": person["name"],
+                    "status": person["status"],
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved person", "data": person}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "GET_PERSON_ERROR",
+                "Error retrieving person",
+                error=e,
+                data={
+                    "person_id": person_id,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving person"
+            )
 
 
 @router.put("/people/{person_id}", response_model=PersonResponse)
@@ -144,20 +390,73 @@ async def update_person(
 
     Use 'new' as the person_id to automatically generate a UUID for a new person.
     """
-    # Validate name is provided for new records
-    if not updates or not updates.name:
-        raise HTTPException(status_code=400, detail="Name is required")
+    with Timer() as timer:
+        try:
+            if not updates or not updates.name:
+                cwlogger.warning(
+                    "UPDATE_PERSON_ERROR",
+                    "Name is required",
+                    data={"person_id": person_id}
+                )
+                raise HTTPException(status_code=400, detail="Name is required")
 
-    # Generate UUID for new people
-    if person_id == "new":
-        person_id = str(uuid.uuid4())
+            # Generate UUID for new people
+            is_new = person_id == "new"
+            if is_new:
+                person_id = str(uuid.uuid4())
+                cwlogger.info(
+                    "UPDATE_PERSON_START",
+                    "Creating new person",
+                    data={
+                        "person_id": person_id,
+                        "name": updates.name
+                    }
+                )
+            else:
+                cwlogger.info(
+                    "UPDATE_PERSON_START",
+                    f"Updating person {person_id}",
+                    data={
+                        "person_id": person_id,
+                        "updates": updates.dict(exclude_unset=True)
+                    }
+                )
 
-    db = DynamoDBClient()
-    updated_person = await db.update_person(person_id, updates.dict(exclude_unset=True))
-    return {
-        "message": "Successfully updated person",
-        "data": [updated_person],  # Wrap in list to match response model
-    }
+            db = DynamoDBClient()
+            updated_person = await db.update_person(person_id, updates.dict(exclude_unset=True))
+
+            cwlogger.info(
+                "UPDATE_PERSON_COMPLETE",
+                f"Successfully {'created' if is_new else 'updated'} person",
+                data={
+                    "person_id": person_id,
+                    "person_name": updated_person["name"],
+                    "is_new": is_new,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+
+            return {
+                "message": "Successfully updated person",
+                "data": [updated_person],  # Wrap in list to match response model
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "UPDATE_PERSON_ERROR",
+                "Error updating person",
+                error=e,
+                data={
+                    "person_id": person_id,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while updating person"
+            )
 
 
 @router.get("/draft-order", response_model=DraftOrderListResponse)
@@ -170,9 +469,50 @@ async def get_draft_order(
     """
     Get draft order records, optionally filtered by year and/or player.
     """
-    db = DynamoDBClient()
-    draft_orders = await db.get_draft_order(year, player_id)
-    return {"message": "Successfully retrieved draft orders", "data": draft_orders}
+    with Timer() as timer:
+        try:
+            target_year = year if year else datetime.now().year
+            
+            cwlogger.info(
+                "GET_DRAFT_ORDER_START",
+                "Retrieving draft orders",
+                data={
+                    "year": target_year,
+                    "player_id": player_id
+                }
+            )
+            
+            db = DynamoDBClient()
+            draft_orders = await db.get_draft_order(target_year, player_id)
+            
+            cwlogger.info(
+                "GET_DRAFT_ORDER_COMPLETE",
+                f"Retrieved {len(draft_orders)} draft orders",
+                data={
+                    "year": target_year,
+                    "player_id": player_id,
+                    "order_count": len(draft_orders),
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved draft orders", "data": draft_orders}
+            
+        except Exception as e:
+            cwlogger.error(
+                "GET_DRAFT_ORDER_ERROR",
+                "Error retrieving draft orders",
+                error=e,
+                data={
+                    "year": target_year,
+                    "player_id": player_id,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving draft orders"
+            )
 
 
 @router.put("/draft-order/{player_id}", response_model=DraftOrderListResponse)
@@ -184,12 +524,67 @@ async def update_draft_order(
     """
     Update a player's draft order for a specific year.
     """
-    db = DynamoDBClient()
-    updated_order = await db.update_draft_order(player_id, year, draft_order)
-    return {
-        "message": "Successfully updated draft order",
-        "data": [updated_order],  # Wrap in list to match response model
-    }
+    with Timer() as timer:
+        try:
+            cwlogger.info(
+                "UPDATE_DRAFT_ORDER_START",
+                f"Updating draft order for player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "year": year,
+                    "draft_order": draft_order
+                }
+            )
+            
+            db = DynamoDBClient()
+            
+            # Verify player exists
+            player = await db.get_player(player_id)
+            if not player:
+                cwlogger.warning(
+                    "UPDATE_DRAFT_ORDER_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id}
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+            
+            updated_order = await db.update_draft_order(player_id, year, draft_order)
+            
+            cwlogger.info(
+                "UPDATE_DRAFT_ORDER_COMPLETE",
+                f"Successfully updated draft order",
+                data={
+                    "player_id": player_id,
+                    "player_name": player["name"],
+                    "year": year,
+                    "draft_order": draft_order,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {
+                "message": "Successfully updated draft order",
+                "data": [updated_order],  # Wrap in list to match response model
+            }
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "UPDATE_DRAFT_ORDER_ERROR",
+                "Error updating draft order",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "year": year,
+                    "draft_order": draft_order,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while updating draft order"
+            )
 
 
 @router.get("/player-picks/{player_id}", response_model=PlayerPickResponse)
@@ -200,9 +595,64 @@ async def get_player_picks(
     """
     Get all picks for a specific player, optionally filtered by year.
     """
-    db = DynamoDBClient()
-    picks = await db.get_player_picks(player_id, year)
-    return {"message": "Successfully retrieved player picks", "data": picks}
+    with Timer() as timer:
+        try:
+            target_year = year if year else datetime.now().year
+            
+            cwlogger.info(
+                "GET_PLAYER_PICKS_START",
+                f"Retrieving picks for player {player_id}",
+                data={
+                    "player_id": player_id,
+                    "year": target_year
+                }
+            )
+            
+            db = DynamoDBClient()
+            
+            # Verify player exists
+            player = await db.get_player(player_id)
+            if not player:
+                cwlogger.warning(
+                    "GET_PLAYER_PICKS_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id}
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+            
+            picks = await db.get_player_picks(player_id, target_year)
+            
+            cwlogger.info(
+                "GET_PLAYER_PICKS_COMPLETE",
+                f"Retrieved {len(picks)} picks",
+                data={
+                    "player_id": player_id,
+                    "player_name": player["name"],
+                    "year": target_year,
+                    "pick_count": len(picks),
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            
+            return {"message": "Successfully retrieved player picks", "data": picks}
+            
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "GET_PLAYER_PICKS_ERROR",
+                "Error retrieving player picks",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "year": target_year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving player picks"
+            )
 
 
 @router.put("/player-picks/{player_id}", response_model=PlayerPickResponse)
@@ -295,62 +745,96 @@ async def get_picks(year: int = Query(..., description="Filter picks by year")):
     Get all picks for a given year with player and picked person details.
     Returns data sorted by draft order.
     """
-    db = DynamoDBClient()
+    with Timer() as timer:
+        try:
+            cwlogger.info(
+                "GET_PICKS_START",
+                f"Retrieving all picks for year {year}",
+                data={"year": year}
+            )
+            
+            db = DynamoDBClient()
 
-    # Get all players for the year
-    players = await db.get_players(year)
+            # Get all players for the year
+            players = await db.get_players(year)
 
-    # Build the detailed pick information
-    detailed_picks = []
-    for player in players:
-        # Get all picks for this player in the year
-        picks = await db.get_player_picks(player["id"], year)
+            # Build the detailed pick information
+            detailed_picks = []
+            for player in players:
+                # Get all picks for this player in the year
+                picks = await db.get_player_picks(player["id"], year)
 
-        if picks:
-            # For each pick, get the person details and create a pick detail
-            for pick in picks:
-                picked_person = await db.get_person(pick["person_id"])
+                if picks:
+                    # For each pick, get the person details and create a pick detail
+                    for pick in picks:
+                        picked_person = await db.get_person(pick["person_id"])
 
-                # Extract additional person details from metadata
-                person_metadata = (
-                    picked_person.get("metadata", {}) if picked_person else {}
-                )
+                        # Extract additional person details from metadata
+                        person_metadata = (
+                            picked_person.get("metadata", {}) if picked_person else {}
+                        )
 
-                pick_detail = {
-                    "player_id": player["id"],
-                    "player_name": player["name"],
-                    "draft_order": player["draft_order"],
-                    "pick_person_id": pick["person_id"],
-                    "pick_person_name": picked_person["name"]
-                    if picked_person
-                    else None,
-                    "pick_person_age": person_metadata.get("Age"),
-                    "pick_person_birth_date": person_metadata.get("BirthDate"),
-                    "pick_person_death_date": person_metadata.get("DeathDate"),
-                    "pick_timestamp": pick["timestamp"],
+                        pick_detail = {
+                            "player_id": player["id"],
+                            "player_name": player["name"],
+                            "draft_order": player["draft_order"],
+                            "pick_person_id": pick["person_id"],
+                            "pick_person_name": picked_person["name"]
+                            if picked_person
+                            else None,
+                            "pick_person_age": person_metadata.get("Age"),
+                            "pick_person_birth_date": person_metadata.get("BirthDate"),
+                            "pick_person_death_date": person_metadata.get("DeathDate"),
+                            "pick_timestamp": pick["timestamp"],
+                            "year": year,
+                        }
+                        detailed_picks.append(pick_detail)
+                else:
+                    # Include player even if they have no picks
+                    pick_detail = {
+                        "player_id": player["id"],
+                        "player_name": player["name"],
+                        "draft_order": player["draft_order"],
+                        "pick_person_id": None,
+                        "pick_person_name": None,
+                        "pick_person_age": None,
+                        "pick_person_birth_date": None,
+                        "pick_person_death_date": None,
+                        "pick_timestamp": None,
+                        "year": year,
+                    }
+                    detailed_picks.append(pick_detail)
+
+            # Sort by draft order
+            detailed_picks.sort(key=lambda x: x["draft_order"])
+            
+            cwlogger.info(
+                "GET_PICKS_COMPLETE",
+                f"Retrieved {len(detailed_picks)} picks",
+                data={
                     "year": year,
+                    "pick_count": len(detailed_picks),
+                    "player_count": len(players),
+                    "elapsed_ms": timer.elapsed_ms
                 }
-                detailed_picks.append(pick_detail)
-        else:
-            # Include player even if they have no picks
-            pick_detail = {
-                "player_id": player["id"],
-                "player_name": player["name"],
-                "draft_order": player["draft_order"],
-                "pick_person_id": None,
-                "pick_person_name": None,
-                "pick_person_age": None,
-                "pick_person_birth_date": None,
-                "pick_person_death_date": None,
-                "pick_timestamp": None,
-                "year": year,
-            }
-            detailed_picks.append(pick_detail)
+            )
 
-    # Sort by draft order
-    detailed_picks.sort(key=lambda x: x["draft_order"])
-
-    return {"message": "Successfully retrieved picks", "data": detailed_picks}
+            return {"message": "Successfully retrieved picks", "data": detailed_picks}
+            
+        except Exception as e:
+            cwlogger.error(
+                "GET_PICKS_ERROR",
+                "Error retrieving picks",
+                error=e,
+                data={
+                    "year": year,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving picks"
+            )
 
 
 @router.post("/draft", response_model=DraftResponse)
@@ -631,104 +1115,4 @@ async def get_next_drafter():
             raise HTTPException(
                 status_code=500,
                 detail="An error occurred while determining the next drafter"
-            )
-
-
-@router.get("/leaderboard", response_model=LeaderboardResponse)
-async def get_leaderboard(
-    year: Optional[int] = Query(
-        None,
-        description="The year to get the leaderboard for (defaults to current year)",
-    ),
-):
-    """
-    Get the leaderboard for a specific year.
-    Players are scored based on their dead celebrity picks:
-    Score = sum of (50 + (100 - Age)) for each dead celebrity
-    """
-    with Timer() as timer:
-        try:
-            # Use current year if none specified
-            target_year = year if year else datetime.now().year
-
-            cwlogger.info(
-                "LEADERBOARD_START",
-                f"Calculating leaderboard for year {target_year}",
-                data={"year": target_year}
-            )
-
-            db = DynamoDBClient()
-
-            # Get all players for the year
-            players = await db.get_players(target_year)
-
-            # Calculate scores for each player
-            leaderboard_entries = []
-            for player in players:
-                total_score = 0
-                # Get all picks for this player in the year
-                picks = await db.get_player_picks(player["id"], target_year)
-
-                # Calculate score for each pick
-                dead_picks = 0
-                for pick in picks:
-                    person = await db.get_person(pick["person_id"])
-                    if person and person.get("metadata", {}).get("DeathDate"):
-                        # Person is dead, calculate score
-                        age = person.get("metadata", {}).get("Age", 0)
-                        pick_score = 50 + (100 - age)
-                        total_score += pick_score
-                        dead_picks += 1
-
-                # Create leaderboard entry
-                entry = LeaderboardEntry(
-                    player_id=player["id"], player_name=player["name"], score=total_score
-                )
-                leaderboard_entries.append(entry)
-
-                cwlogger.info(
-                    "LEADERBOARD_PLAYER",
-                    f"Calculated score for player {player['name']}",
-                    data={
-                        "player_id": player["id"],
-                        "player_name": player["name"],
-                        "score": total_score,
-                        "total_picks": len(picks),
-                        "dead_picks": dead_picks,
-                        "year": target_year
-                    }
-                )
-
-            # Sort by score (highest first)
-            leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
-
-            cwlogger.info(
-                "LEADERBOARD_COMPLETE",
-                f"Generated leaderboard for year {target_year}",
-                data={
-                    "year": target_year,
-                    "player_count": len(leaderboard_entries),
-                    "top_score": leaderboard_entries[0].score if leaderboard_entries else 0,
-                    "elapsed_ms": timer.elapsed_ms
-                }
-            )
-
-            return {
-                "message": "Successfully retrieved leaderboard",
-                "data": leaderboard_entries,
-            }
-
-        except Exception as e:
-            cwlogger.error(
-                "LEADERBOARD_ERROR",
-                "Error generating leaderboard",
-                error=e,
-                data={
-                    "year": target_year,
-                    "elapsed_ms": timer.elapsed_ms
-                }
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="An error occurred while generating the leaderboard"
             )
