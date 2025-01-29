@@ -129,7 +129,7 @@ class Timer:
         
     @property
     def elapsed_ms(self) -> float:
-        """Get elapsed time in milliseconds."""
+        """Get elapsed time in milliseconds, rounded to 2 decimal places."""
         if self.start_time and self.end_time:
-            return (self.end_time - self.start_time) * 1000
+            return round((self.end_time - self.start_time) * 1000, 2)
         return 0.0
