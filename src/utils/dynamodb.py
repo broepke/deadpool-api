@@ -203,59 +203,6 @@ class DynamoDBClient:
                 )
                 return []
 
-        # Extract player IDs and draft orders
-        player_info = []
-        for order in draft_orders:
-            # SK format: ORDER#{draft_order}#PLAYER#{player_id}
-            parts = order["SK"].split("#")
-            if len(parts) >= 4:
-                draft_order = int(parts[1])
-                player_id = parts[3]
-                player_info.append((player_id, draft_order))
-
-        if not player_info:
-            print("No player info extracted from draft orders")
-            return []
-
-        # Get player details
-        transformed_players = []
-        for player_id, draft_order in player_info:
-            try:
-                # Get player details
-                player_response = self.table.get_item(
-                    Key={"PK": f"PLAYER#{player_id}", "SK": "DETAILS"}
-                )
-                player = player_response.get("Item")
-
-                if not player:
-                    print(f"No details found for player {player_id}")
-                    continue
-
-                # Transform player data
-                transformed = {
-                    "id": player_id,
-                    "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
-                    "draft_order": draft_order,
-                    "year": target_year,
-                    "metadata": {
-                        k: (
-                            int(v)
-                            if isinstance(v, Decimal) and v % 1 == 0
-                            else float(v)
-                            if isinstance(v, Decimal)
-                            else v
-                        )
-                        for k, v in player.items()
-                        if k not in ["PK", "SK", "FirstName", "LastName"]
-                    },
-                }
-                transformed_players.append(transformed)
-            except Exception as e:
-                print(f"Error processing player {player_id}: {str(e)}")
-
-        # Sort by draft order
-        transformed_players.sort(key=lambda x: x["draft_order"])
-        return transformed_players
 
     async def get_people(self) -> List[Dict[str, Any]]:
         """
