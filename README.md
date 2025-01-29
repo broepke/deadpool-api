@@ -605,6 +605,53 @@ Response format:
 }
 ```
 
+### Pick Counts
+
+#### Get Pick Counts
+
+```json
+GET /api/v1/deadpool/picks-counts
+```
+
+Returns a count of picks for each player in a given year. Results are sorted by draft order.
+
+Optional query parameter:
+
+- `year`: Filter by year (defaults to current year if not specified)
+
+Example:
+
+```json
+GET /api/v1/deadpool/picks-counts
+GET /api/v1/deadpool/picks-counts?year=2024
+```
+
+Response format:
+
+```json
+{
+  "message": "Successfully retrieved pick counts",
+  "data": [
+    {
+      "player_id": "54e804d8-4061-7010-013c-870d2ef43041",
+      "player_name": "Chris Vienneau",
+      "draft_order": 1,
+      "pick_count": 4,
+      "year": 2025
+    }
+    // ... other players sorted by draft order
+  ]
+}
+```
+
+The response includes:
+
+- `player_id`: The ID of the player
+- `player_name`: The name of the player
+- `draft_order`: Their draft order position
+- `pick_count`: Number of picks they have for the specified year
+- `year`: The year the counts are for
+
 ### Leaderboard
 
 #### Get Leaderboard

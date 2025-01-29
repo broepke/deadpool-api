@@ -19,6 +19,8 @@ from ..models.deadpool import (
     LeaderboardEntry,
     DraftRequest,
     DraftResponse,
+    PicksCountResponse,
+    PicksCountEntry,
 )
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
@@ -1086,6 +1088,90 @@ async def get_next_drafter():
             raise HTTPException(
                 status_code=500,
                 detail="An error occurred while determining the next drafter",
+            )
+
+
+@router.get("/picks-counts", response_model=PicksCountResponse)
+async def get_picks_counts(
+    year: Optional[int] = Query(
+        None,
+        description="The year to get pick counts for (defaults to current year)",
+    ),
+):
+    """
+    Get pick counts for all players in a specific year.
+    Returns a list of players with their pick counts, sorted by draft order.
+    """
+    with Timer() as timer:
+        try:
+            # Use current year if none specified
+            target_year = year if year else datetime.now().year
+
+            cwlogger.info(
+                "GET_PICKS_COUNTS_START",
+                f"Retrieving pick counts for year {target_year}",
+                data={"year": target_year},
+            )
+
+            db = DynamoDBClient()
+
+            # Get all players for the year
+            players = await db.get_players(target_year)
+
+            # Calculate pick counts for each player
+            picks_counts = []
+            for player in players:
+                # Get all picks for this player in the year
+                picks = await db.get_player_picks(player["id"], target_year)
+
+                picks_count_entry = PicksCountEntry(
+                    player_id=player["id"],
+                    player_name=player["name"],
+                    draft_order=player["draft_order"],
+                    pick_count=len(picks),
+                    year=target_year,
+                )
+                picks_counts.append(picks_count_entry)
+
+                cwlogger.info(
+                    "GET_PICKS_COUNTS_PLAYER",
+                    f"Calculated picks for player {player['name']}",
+                    data={
+                        "player_id": player["id"],
+                        "player_name": player["name"],
+                        "pick_count": len(picks),
+                        "year": target_year,
+                    },
+                )
+
+            # Sort by draft order
+            picks_counts.sort(key=lambda x: x.draft_order)
+
+            cwlogger.info(
+                "GET_PICKS_COUNTS_COMPLETE",
+                f"Retrieved pick counts for {len(picks_counts)} players",
+                data={
+                    "year": target_year,
+                    "player_count": len(picks_counts),
+                    "elapsed_ms": timer.elapsed_ms,
+                },
+            )
+
+            return {
+                "message": "Successfully retrieved pick counts",
+                "data": picks_counts,
+            }
+
+        except Exception as e:
+            cwlogger.error(
+                "GET_PICKS_COUNTS_ERROR",
+                "Error retrieving pick counts",
+                error=e,
+                data={"year": target_year, "elapsed_ms": timer.elapsed_ms},
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving pick counts",
             )
 
 
