@@ -1,5 +1,4 @@
 import boto3
-import uuid
 from typing import List, Optional, Dict, Any
 from decimal import Decimal
 from datetime import datetime
@@ -209,8 +208,11 @@ class DynamoDBClient:
         Get all people from DynamoDB.
         """
         params = {
-            "FilterExpression": "SK = :details",
-            "ExpressionAttributeValues": {":details": "DETAILS"},
+            "FilterExpression": "SK = :details AND begins_with(PK, :person_prefix)",
+            "ExpressionAttributeValues": {
+                ":details": "DETAILS",
+                ":person_prefix": "PERSON#"
+            },
         }
 
         response = self.table.scan(**params)
