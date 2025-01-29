@@ -207,6 +207,27 @@ class DraftResponse(BaseModel):
     message: str
     data: Dict[str, Any]
 
+class PicksCountEntry(BaseModel):
+    """
+    Pydantic model for a player's picks count entry.
+    """
+    
+    player_id: str
+    player_name: str
+    draft_order: int
+    pick_count: int
+    year: int
+
+
+class PicksCountResponse(BaseModel):
+    """
+    Pydantic model for API response containing picks count data.
+    """
+    
+    message: str
+    data: List[PicksCountEntry]
+
+
 class LeaderboardResponse(BaseModel):
     """
     Pydantic model for API response containing leaderboard data.
