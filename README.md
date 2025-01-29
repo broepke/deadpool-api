@@ -71,14 +71,18 @@ filter event_type like 'DRAFT' and data.year = 2025
 ```text
 filter event_type = 'RESPONSE'
 | stats
-    count(*) as request_count,
-    count(data.status_code = 200) as success_count,
     avg(data.elapsed_ms) as avg_latency_ms,
     max(data.elapsed_ms) as max_latency_ms,
     min(data.elapsed_ms) as min_latency_ms
 by data.path, data.method
-| display data.path, data.method, request_count, success_count, avg_latency_ms, max_latency_ms, min_latency_ms
+| display data.path, data.method, avg_latency_ms, max_latency_ms, min_latency_ms
 | sort request_count desc
+```
+
+```text
+filter event_type = 'RESPONSE'
+| stats count(*) as count by data.status_code, data.path, data.method
+| sort data.path, data.method, count desc
 ```
 
 ### 3. Monitor Player Draft Activity
