@@ -58,52 +58,62 @@ The following CloudWatch Insights queries are useful for monitoring and troubles
 ### 1. Monitor Draft Success Rate
 
 ```text
-filter event_type = "BUSINESS" and event_name = "DRAFT_PICK"
+filter event_type like 'DRAFT' and data.year = 2025
 | stats count(*) as total,
-    count(status = "success") as successes,
-    count(status = "error") as failures,
-    (count(status = "success") * 100.0 / count(*)) as success_rate
+    count(event_type = 'DRAFT_COMPLETE') as successes,
+    count(level = 'ERROR') as failures,
+    (count(event_type = 'DRAFT_COMPLETE') * 100.0 / count(*)) as success_rate
+| sort success_rate desc
 ```
 
 ### 2. Track API Performance by Endpoint
 
 ```text
-filter event_type = "RESPONSE"
-| stats avg(response_time) as avg_latency_ms,
-    max(response_time) as max_latency_ms,
-    min(response_time) as min_latency_ms
-by endpoint
+filter event_type = 'RESPONSE'
+| stats avg(data.elapsed_ms) as avg_latency_ms,
+    max(data.elapsed_ms) as max_latency_ms,
+    min(data.elapsed_ms) as min_latency_ms,
+    count(*) as request_count,
+    count(data.status_code >= 400) as error_count
+by data.path, data.method
 | sort avg_latency_ms desc
 ```
 
 ### 3. Monitor Player Draft Activity
 
 ```text
-filter event_type = "BUSINESS" and event_name = "DRAFT_PICK"
+filter event_type = 'DRAFT_COMPLETE' and data.year = 2025
 | stats count(*) as pick_count,
-    avg(response_time) as avg_pick_time_ms
-by data.player_id, data.year
+    avg(data.elapsed_ms) as avg_pick_time_ms,
+    count_distinct(data.person_id) as unique_picks,
+    max(data.pick_timestamp) as latest_pick
+by data.player_id, data.player_name
 | sort pick_count desc
 ```
 
 ### 4. Track Leaderboard Updates
 
 ```text
-filter event_type = "BUSINESS" and event_name = "LEADERBOARD_UPDATE"
+filter event_type = 'LEADERBOARD_PLAYER' and data.year = 2025
 | stats latest(data.score) as current_score,
     latest(data.dead_picks) as dead_picks,
-    latest(data.total_picks) as total_picks
-by player_id, data.year
+    latest(data.total_picks) as total_picks,
+    latest(data.player_name) as player_name
+by data.player_id
 | sort current_score desc
 ```
 
 ### 5. Error Analysis
 
 ```text
-filter level = "ERROR"
+filter level = 'ERROR'
 | stats count(*) as error_count,
-    count_distinct(request_id) as affected_requests
-by error_type
+    count_distinct(request_id) as affected_requests,
+    earliest(data.elapsed_ms) as first_occurrence_ms,
+    latest(data.elapsed_ms) as last_occurrence_ms,
+    latest(error.type) as error_type,
+    latest(error.message) as error_message
+by event_type
 | sort error_count desc
 ```
 
