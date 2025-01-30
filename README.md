@@ -39,17 +39,63 @@ The API can be deployed as an AWS Lambda function using the provided deployment 
 
 The API is configured to work with API Gateway using:
 
-- Stage: /default
+- Stages: /dev and /prod
 - Base path: /api/v1/deadpool
-- Example endpoint: https://[api-id].execute-api.[region].amazonaws.com/default/api/v1/deadpool/players
+- Example endpoint: https://[api-id].execute-api.[region].amazonaws.com/dev/api/v1/deadpool/players
 
 Configuration requirements:
 
 - Use Lambda Proxy integration
 - Forward all requests to the Lambda function
-- Handle CORS if needed (already configured in the application)
 
-Note: The Mangum handler in lambda_function.py is configured with api_gateway_base_path="/default" to match the API Gateway stage.
+#### CORS Configuration
+
+CORS is configured at the API Gateway level using stage variables to support different origins for development and production environments.
+
+1. Stage Variables Setup:
+
+   - Dev Stage:
+     - Name: `allowOrigin`
+     - Value: `http://localhost:5173`
+   - Prod Stage:
+     - Name: `allowOrigin`
+     - Value: `https://deadpool.dataknowsall.com`
+
+2. CORS Configuration for Each Resource:
+
+   - In Integration Response:
+     - Remove all Header Mappings
+     - Add Response Template (application/json):
+
+     ```text
+     #set($origin = $stageVariables.allowOrigin)
+     #set($context.responseOverride.header.Access-Control-Allow-Origin = $origin)
+     #set($context.responseOverride.header.Access-Control-Allow-Headers = "Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Requested-With,Accept")
+     #set($context.responseOverride.header.Access-Control-Allow-Methods = "GET,OPTIONS")
+     #set($context.responseOverride.header.Access-Control-Allow-Credentials = "true")
+     #set($context.responseOverride.header.Access-Control-Expose-Headers = "Content-Length,Content-Type,*")
+     #set($context.responseOverride.header.Access-Control-Max-Age = "300")
+     {}
+     ```
+
+3. Method Response:
+   - Configure response headers:
+     - Access-Control-Allow-Origin
+     - Access-Control-Allow-Methods
+     - Access-Control-Allow-Headers
+     - Access-Control-Allow-Credentials
+     - Access-Control-Expose-Headers
+     - Access-Control-Max-Age
+
+**This configuration allows:**
+
+- Development testing from localhost
+- Production access from the main domain
+- Proper handling of API key authentication
+- Pre-flight OPTIONS requests
+- Credentials in cross-origin requests
+
+Note: The Mangum handler in lambda_function.py is configured without api_gateway_base_path to support multiple stages.
 
 ## CloudWatch Insights Queries
 
@@ -230,12 +276,14 @@ NAME_MATCHING_CONFIG = {
 ### How It Works
 
 1. **Name Normalization**
+
    - Converts to lowercase
    - Removes/standardizes punctuation
    - Standardizes multiple spaces
    - Normalizes common suffixes
 
 2. **Matching Process**
+
    - First checks for exact matches after normalization
    - For names ≥ 4 characters, applies fuzzy matching
    - Calculates similarity score using RapidFuzz ratio
