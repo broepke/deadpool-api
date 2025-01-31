@@ -569,16 +569,30 @@ The endpoint will return:
 GET /api/v1/deadpool/picks
 ```
 
-Returns all picks for a given year with detailed information about both players and their picked persons. Results are sorted by draft order.
+Returns picks for a given year with detailed information about both players and their picked persons. Results are sorted by draft order.
 
 Required query parameter:
-
 - `year`: Filter picks by year
 
-Example:
+Optional query parameters:
+- `page_size`: Number of items per page (default: 10, max: 100)
+- `page`: Page number for paginated results (default: 1)
+- `limit`: Alternative to pagination, returns a specific number of items
+
+Examples:
 
 ```json
+# Default pagination (10 items per page)
 GET /api/v1/deadpool/picks?year=2024
+
+# Custom page size
+GET /api/v1/deadpool/picks?year=2024&page_size=20
+
+# Get specific page
+GET /api/v1/deadpool/picks?year=2024&page=2&page_size=20
+
+# Use limit instead of pagination
+GET /api/v1/deadpool/picks?year=2024&limit=50
 ```
 
 Response format:
@@ -600,9 +614,15 @@ Response format:
       "year": 2024
     }
     // ... other picks
-  ]
+  ],
+  "total": 55,         // Total number of items available
+  "page": 1,           // Current page number
+  "page_size": 10,     // Number of items per page
+  "total_pages": 6     // Total number of pages
 }
 ```
+
+Note: The pagination metadata (total, page, page_size, total_pages) is always included in the response, even when using the limit parameter. When using limit, page will be 1 and total_pages will be 1.
 
 #### Update Player Pick
 

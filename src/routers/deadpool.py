@@ -14,6 +14,7 @@ from ..models.deadpool import (
     PlayerPickResponse,
     PlayerPickUpdate,
     PickDetailResponse,
+    PaginatedPickDetailResponse,
     NextDrafterResponse,
     LeaderboardResponse,
     LeaderboardEntry,
@@ -723,22 +724,30 @@ async def update_player_pick(
                 detail="An error occurred while updating the player pick",
             )
 
-
-@router.get("/picks", response_model=PickDetailResponse)
+@router.get("/picks", response_model=PaginatedPickDetailResponse)
 async def get_picks(
     year: int = Query(..., description="Filter picks by year"),
-    limit: Optional[int] = Query(None, description="Limit the number of picks returned"),
+    limit: Optional[int] = Query(None, description="Limit the number of results returned. If not specified, pagination will be used."),
+    page: Optional[int] = Query(1, description="Page number for paginated results", ge=1),
+    page_size: Optional[int] = Query(10, description="Number of items per page", ge=1, le=100),
 ):
     """
-    Get all picks for a given year with player and picked person details.
+    Get picks for a given year with player and picked person details.
+    If limit is specified, returns that many results.
+    If limit is not specified, returns paginated results with default page size of 10.
     Returns data sorted by draft order.
     """
     with Timer() as timer:
         try:
             cwlogger.info(
                 "GET_PICKS_START",
-                f"Retrieving all picks for year {year}",
-                data={"year": year},
+                f"Retrieving picks for year {year}",
+                data={
+                    "year": year,
+                    "limit": limit,
+                    "page": page,
+                    "page_size": page_size
+                },
             )
 
             db = DynamoDBClient()
@@ -793,25 +802,62 @@ async def get_picks(
                     }
                     detailed_picks.append(pick_detail)
 
-            # Sort by timestamp descending (most recent first)
-            detailed_picks.sort(key=lambda x: x["pick_timestamp"] if x["pick_timestamp"] else datetime.min, reverse=True)
+            # Sort by draft order
+            detailed_picks.sort(key=lambda x: x["draft_order"])
 
-            # Apply limit if specified
+            total_items = len(detailed_picks)
+
+            # Handle limit case
             if limit is not None:
-                detailed_picks = detailed_picks[:limit]
+                limited_picks = detailed_picks[:limit]
+                cwlogger.info(
+                    "GET_PICKS_COMPLETE",
+                    f"Retrieved {len(limited_picks)} picks (limited from {total_items})",
+                    data={
+                        "year": year,
+                        "limit": limit,
+                        "total_items": total_items,
+                        "returned_items": len(limited_picks),
+                        "elapsed_ms": timer.elapsed_ms,
+                    },
+                )
+                return {
+                    "message": "Successfully retrieved picks",
+                    "data": limited_picks,
+                    "total": total_items,
+                    "page": 1,
+                    "page_size": limit,
+                    "total_pages": 1
+                }
+
+            # Handle pagination case
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            paginated_picks = detailed_picks[start_idx:end_idx]
+            total_pages = (total_items + page_size - 1) // page_size
 
             cwlogger.info(
                 "GET_PICKS_COMPLETE",
-                f"Retrieved {len(detailed_picks)} picks",
+                f"Retrieved {len(paginated_picks)} picks (page {page} of {total_pages})",
                 data={
                     "year": year,
-                    "pick_count": len(detailed_picks),
-                    "player_count": len(players),
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                    "returned_items": len(paginated_picks),
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
 
-            return {"message": "Successfully retrieved picks", "data": detailed_picks}
+            return {
+                "message": "Successfully retrieved picks",
+                "data": paginated_picks,
+                "total": total_items,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages
+            }
 
         except Exception as e:
             cwlogger.error(

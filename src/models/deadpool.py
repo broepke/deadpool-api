@@ -20,11 +20,21 @@ class PickDetail(BaseModel):
     year: int
 
 
+class PaginatedPickDetailResponse(BaseModel):
+    """
+    Pydantic model for paginated API responses containing detailed pick information.
+    """
+    message: str
+    data: List[PickDetail]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
 class PickDetailResponse(BaseModel):
     """
     Pydantic model for API responses containing detailed pick information.
     """
-
     message: str
     data: List[PickDetail]
 
