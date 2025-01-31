@@ -555,96 +555,7 @@ async def update_draft_order(
             )
 
 
-@router.get("/player-picks/{player_id}", response_model=PickDetailResponse)
-async def get_player_picks(
-    player_id: str = Path(..., description="The ID of the player to get picks for"),
-    year: Optional[int] = Query(None, description="Filter picks by year"),
-):
-    """
-    Get all picks for a specific player, optionally filtered by year.
-    Returns data in the same format as the /picks endpoint.
-    """
-    with Timer() as timer:
-        try:
-            target_year = year if year else datetime.now().year
-
-            cwlogger.info(
-                "GET_PLAYER_PICKS_START",
-                f"Retrieving picks for player {player_id}",
-                data={"player_id": player_id, "year": target_year},
-            )
-
-            db = DynamoDBClient()
-
-            # Verify player exists and get their draft order for the target year
-            player = await db.get_player(player_id, target_year)
-            if not player:
-                cwlogger.warning(
-                    "GET_PLAYER_PICKS_ERROR",
-                    "Player not found",
-                    data={"player_id": player_id},
-                )
-                raise HTTPException(status_code=404, detail="Player not found")
-
-            picks = await db.get_player_picks(player_id, target_year)
-            
-            # Build the detailed pick information
-            detailed_picks = []
-            for pick in picks:
-                # Get person details
-                picked_person = await db.get_person(pick["person_id"])
-                
-                # Extract additional person details from metadata
-                person_metadata = picked_person.get("metadata", {}) if picked_person else {}
-                
-                pick_detail = {
-                    "player_id": player["id"],
-                    "player_name": player["name"],
-                    "draft_order": player["draft_order"],
-                    "pick_person_id": pick["person_id"],
-                    "pick_person_name": picked_person["name"] if picked_person else None,
-                    "pick_person_age": person_metadata.get("Age"),
-                    "pick_person_birth_date": person_metadata.get("BirthDate"),
-                    "pick_person_death_date": person_metadata.get("DeathDate"),
-                    "pick_timestamp": pick["timestamp"],
-                    "year": target_year,
-                }
-                detailed_picks.append(pick_detail)
-
-            cwlogger.info(
-                "GET_PLAYER_PICKS_COMPLETE",
-                f"Retrieved {len(picks)} picks",
-                data={
-                    "player_id": player_id,
-                    "player_name": player["name"],
-                    "year": target_year,
-                    "pick_count": len(picks),
-                    "elapsed_ms": timer.elapsed_ms,
-                },
-            )
-
-            return {"message": "Successfully retrieved player picks", "data": detailed_picks}
-
-        except HTTPException:
-            raise
-        except Exception as e:
-            cwlogger.error(
-                "GET_PLAYER_PICKS_ERROR",
-                "Error retrieving player picks",
-                error=e,
-                data={
-                    "player_id": player_id,
-                    "year": target_year,
-                    "elapsed_ms": timer.elapsed_ms,
-                },
-            )
-            raise HTTPException(
-                status_code=500,
-                detail="An error occurred while retrieving player picks",
-            )
-
-
-@router.put("/player-picks/{player_id}", response_model=PlayerPickResponse)
+@router.put("/picks/{player_id}", response_model=PlayerPickResponse)
 async def update_player_pick(
     player_id: str = Path(..., description="The ID of the player to update picks for"),
     updates: PlayerPickUpdate = None,
@@ -724,15 +635,156 @@ async def update_player_pick(
                 detail="An error occurred while updating the player pick",
             )
 
-@router.get("/picks", response_model=PaginatedPickDetailResponse)
-async def get_picks(
-    year: int = Query(..., description="Filter picks by year"),
+@router.get("/picks/{player_id}", response_model=PaginatedPickDetailResponse)
+async def get_player_picks(
+    player_id: str = Path(..., description="The ID of the player to get picks for"),
+    year: Optional[int] = Query(None, description="Filter picks by year (defaults to current year)"),
     limit: Optional[int] = Query(None, description="Limit the number of results returned. If not specified, pagination will be used."),
     page: Optional[int] = Query(1, description="Page number for paginated results", ge=1),
     page_size: Optional[int] = Query(10, description="Number of items per page", ge=1, le=100),
 ):
     """
-    Get picks for a given year with player and picked person details.
+    Get picks for a specific player, optionally filtered by year.
+    If limit is specified, returns that many results.
+    If limit is not specified, returns paginated results with default page size of 10.
+    Returns detailed pick information including player and picked person details.
+    """
+    with Timer() as timer:
+        try:
+            target_year = year if year else datetime.now().year
+
+            cwlogger.info(
+                "GET_PLAYER_PICKS_START",
+                f"Retrieving picks for player {player_id}",
+                data={"player_id": player_id, "year": target_year},
+            )
+
+            db = DynamoDBClient()
+
+            # Verify player exists and get their draft order for the target year
+            player = await db.get_player(player_id, target_year)
+            if not player:
+                cwlogger.warning(
+                    "GET_PLAYER_PICKS_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+
+            picks = await db.get_player_picks(player_id, target_year)
+            
+            # Build the detailed pick information
+            detailed_picks = []
+            for pick in picks:
+                # Get person details
+                picked_person = await db.get_person(pick["person_id"])
+                
+                # Extract additional person details from metadata
+                person_metadata = picked_person.get("metadata", {}) if picked_person else {}
+                
+                pick_detail = {
+                    "player_id": player["id"],
+                    "player_name": player["name"],
+                    "draft_order": player["draft_order"],
+                    "pick_person_id": pick["person_id"],
+                    "pick_person_name": picked_person["name"] if picked_person else None,
+                    "pick_person_age": person_metadata.get("Age"),
+                    "pick_person_birth_date": person_metadata.get("BirthDate"),
+                    "pick_person_death_date": person_metadata.get("DeathDate"),
+                    "pick_timestamp": pick["timestamp"],
+                    "year": target_year,
+                }
+                detailed_picks.append(pick_detail)
+
+            # Sort by timestamp descending
+            detailed_picks.sort(key=lambda x: x["pick_timestamp"] or "", reverse=True)
+
+            total_items = len(detailed_picks)
+
+            # Handle limit case
+            if limit is not None:
+                limited_picks = detailed_picks[:limit]
+                cwlogger.info(
+                    "GET_PLAYER_PICKS_COMPLETE",
+                    f"Retrieved {len(limited_picks)} picks (limited from {total_items})",
+                    data={
+                        "player_id": player_id,
+                        "player_name": player["name"],
+                        "year": target_year,
+                        "limit": limit,
+                        "total_items": total_items,
+                        "returned_items": len(limited_picks),
+                        "elapsed_ms": timer.elapsed_ms,
+                    },
+                )
+                return {
+                    "message": "Successfully retrieved player picks",
+                    "data": limited_picks,
+                    "total": total_items,
+                    "page": 1,
+                    "page_size": limit,
+                    "total_pages": 1
+                }
+
+            # Handle pagination case
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            paginated_picks = detailed_picks[start_idx:end_idx]
+            total_pages = (total_items + page_size - 1) // page_size
+
+            cwlogger.info(
+                "GET_PLAYER_PICKS_COMPLETE",
+                f"Retrieved {len(paginated_picks)} picks (page {page} of {total_pages})",
+                data={
+                    "player_id": player_id,
+                    "player_name": player["name"],
+                    "year": target_year,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                    "returned_items": len(paginated_picks),
+                    "elapsed_ms": timer.elapsed_ms,
+                },
+            )
+
+            return {
+                "message": "Successfully retrieved player picks",
+                "data": paginated_picks,
+                "total": total_items,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "GET_PLAYER_PICKS_ERROR",
+                "Error retrieving player picks",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "year": target_year,
+                    "elapsed_ms": timer.elapsed_ms,
+                },
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while retrieving player picks",
+            )
+
+
+@router.get("/picks", response_model=PaginatedPickDetailResponse)
+async def get_picks(
+    year: Optional[int] = Query(None, description="Filter picks by year (defaults to current year)"),
+    limit: Optional[int] = Query(None, description="Limit the number of results returned. If not specified, pagination will be used."),
+    page: Optional[int] = Query(1, description="Page number for paginated results", ge=1),
+    page_size: Optional[int] = Query(10, description="Number of items per page", ge=1, le=100),
+):
+    """
+    Get all picks for a given year with player and picked person details.
     If limit is specified, returns that many results.
     If limit is not specified, returns paginated results with default page size of 10.
     Returns data sorted by timestamp in descending order (most recent first).
@@ -740,11 +792,13 @@ async def get_picks(
     """
     with Timer() as timer:
         try:
+            target_year = year if year else datetime.now().year
+
             cwlogger.info(
                 "GET_PICKS_START",
-                f"Retrieving picks for year {year}",
+                f"Retrieving picks for year {target_year}",
                 data={
-                    "year": year,
+                    "year": target_year,
                     "limit": limit,
                     "page": page,
                     "page_size": page_size
@@ -754,7 +808,7 @@ async def get_picks(
             db = DynamoDBClient()
 
             # Get all players for the year
-            players = await db.get_players(year)
+            players = await db.get_players(target_year)
 
             # Build the detailed pick information
             detailed_picks = []
@@ -784,7 +838,7 @@ async def get_picks(
                             "pick_person_birth_date": person_metadata.get("BirthDate"),
                             "pick_person_death_date": person_metadata.get("DeathDate"),
                             "pick_timestamp": pick["timestamp"],
-                            "year": year,
+                            "year": target_year,
                         }
                         detailed_picks.append(pick_detail)
                 else:
@@ -799,7 +853,7 @@ async def get_picks(
                         "pick_person_birth_date": None,
                         "pick_person_death_date": None,
                         "pick_timestamp": None,
-                        "year": year,
+                        "year": target_year,
                     }
                     detailed_picks.append(pick_detail)
 
@@ -815,7 +869,7 @@ async def get_picks(
                     "GET_PICKS_COMPLETE",
                     f"Retrieved {len(limited_picks)} picks (limited from {total_items})",
                     data={
-                        "year": year,
+                        "year": target_year,
                         "limit": limit,
                         "total_items": total_items,
                         "returned_items": len(limited_picks),
