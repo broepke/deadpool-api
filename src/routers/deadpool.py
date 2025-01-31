@@ -725,7 +725,10 @@ async def update_player_pick(
 
 
 @router.get("/picks", response_model=PickDetailResponse)
-async def get_picks(year: int = Query(..., description="Filter picks by year")):
+async def get_picks(
+    year: int = Query(..., description="Filter picks by year"),
+    limit: Optional[int] = Query(None, description="Limit the number of picks returned"),
+):
     """
     Get all picks for a given year with player and picked person details.
     Returns data sorted by draft order.
@@ -790,8 +793,12 @@ async def get_picks(year: int = Query(..., description="Filter picks by year")):
                     }
                     detailed_picks.append(pick_detail)
 
-            # Sort by draft order
-            detailed_picks.sort(key=lambda x: x["draft_order"])
+            # Sort by timestamp descending (most recent first)
+            detailed_picks.sort(key=lambda x: x["pick_timestamp"] if x["pick_timestamp"] else datetime.min, reverse=True)
+
+            # Apply limit if specified
+            if limit is not None:
+                detailed_picks = detailed_picks[:limit]
 
             cwlogger.info(
                 "GET_PICKS_COMPLETE",
