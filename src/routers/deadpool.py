@@ -1214,12 +1214,18 @@ async def get_leaderboard(
                 dead_picks = 0
                 for pick in picks:
                     person = await db.get_person(pick["person_id"])
-                    if person and person.get("metadata", {}).get("DeathDate"):
-                        # Person is dead, calculate score
-                        age = person.get("metadata", {}).get("Age", 0)
-                        pick_score = 50 + (100 - age)
-                        total_score += pick_score
-                        dead_picks += 1
+                    metadata = person.get("metadata", {}) if person else {}
+                    death_date = metadata.get("DeathDate")
+                    
+                    if death_date:
+                        # Extract year from death date and compare to target year
+                        death_year = datetime.strptime(death_date, "%Y-%m-%d").year
+                        if death_year == target_year:
+                            # Person died in target year, calculate score
+                            age = metadata.get("Age", 0)
+                            pick_score = 50 + (100 - age)
+                            total_score += pick_score
+                            dead_picks += 1
 
                 # Create leaderboard entry
                 entry = LeaderboardEntry(
