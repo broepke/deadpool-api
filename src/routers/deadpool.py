@@ -575,8 +575,8 @@ async def get_player_picks(
 
             db = DynamoDBClient()
 
-            # Verify player exists
-            player = await db.get_player(player_id)
+            # Verify player exists and get their draft order for the target year
+            player = await db.get_player(player_id, target_year)
             if not player:
                 cwlogger.warning(
                     "GET_PLAYER_PICKS_ERROR",
