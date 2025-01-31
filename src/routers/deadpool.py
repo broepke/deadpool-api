@@ -554,13 +554,14 @@ async def update_draft_order(
             )
 
 
-@router.get("/player-picks/{player_id}", response_model=PlayerPickResponse)
+@router.get("/player-picks/{player_id}", response_model=PickDetailResponse)
 async def get_player_picks(
     player_id: str = Path(..., description="The ID of the player to get picks for"),
     year: Optional[int] = Query(None, description="Filter picks by year"),
 ):
     """
     Get all picks for a specific player, optionally filtered by year.
+    Returns data in the same format as the /picks endpoint.
     """
     with Timer() as timer:
         try:
@@ -585,6 +586,29 @@ async def get_player_picks(
                 raise HTTPException(status_code=404, detail="Player not found")
 
             picks = await db.get_player_picks(player_id, target_year)
+            
+            # Build the detailed pick information
+            detailed_picks = []
+            for pick in picks:
+                # Get person details
+                picked_person = await db.get_person(pick["person_id"])
+                
+                # Extract additional person details from metadata
+                person_metadata = picked_person.get("metadata", {}) if picked_person else {}
+                
+                pick_detail = {
+                    "player_id": player["id"],
+                    "player_name": player["name"],
+                    "draft_order": player["draft_order"],
+                    "pick_person_id": pick["person_id"],
+                    "pick_person_name": picked_person["name"] if picked_person else None,
+                    "pick_person_age": person_metadata.get("Age"),
+                    "pick_person_birth_date": person_metadata.get("BirthDate"),
+                    "pick_person_death_date": person_metadata.get("DeathDate"),
+                    "pick_timestamp": pick["timestamp"],
+                    "year": target_year,
+                }
+                detailed_picks.append(pick_detail)
 
             cwlogger.info(
                 "GET_PLAYER_PICKS_COMPLETE",
@@ -598,7 +622,7 @@ async def get_player_picks(
                 },
             )
 
-            return {"message": "Successfully retrieved player picks", "data": picks}
+            return {"message": "Successfully retrieved player picks", "data": detailed_picks}
 
         except HTTPException:
             raise
