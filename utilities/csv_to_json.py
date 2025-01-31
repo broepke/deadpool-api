@@ -55,9 +55,6 @@ def process_csvs_to_json(players_csv, people_csv, draft_order_csv, player_picks_
             "SK": {"S": sk},
             "FirstName": {"S": row["FIRST_NAME"]},
             "LastName": {"S": row["LAST_NAME"]},
-            # "Email": {"S": row["EMAIL"]},
-            # "SMS": {"S": "+" + str(row["SMS"])},
-            # "OptIn": {"BOOL": str(row["OPT_IN"]).lower() == "true"},
         }
         table_data["Players"].append(attributes)
 

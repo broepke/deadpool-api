@@ -576,8 +576,8 @@ async def get_player_picks(
 
             db = DynamoDBClient()
 
-            # Verify player exists
-            player = await db.get_player(player_id)
+            # Verify player exists and get their draft order for the target year
+            player = await db.get_player(player_id, target_year)
             if not player:
                 cwlogger.warning(
                     "GET_PLAYER_PICKS_ERROR",
@@ -802,8 +802,8 @@ async def get_picks(
                     }
                     detailed_picks.append(pick_detail)
 
-            # Sort by timestamp descending (None values last)
-            detailed_picks.sort(key=lambda x: (x["pick_timestamp"] is None, x["pick_timestamp"] or "", x["draft_order"]), reverse=True)
+            # Sort by draft order
+            detailed_picks.sort(key=lambda x: x["draft_order"])
 
             total_items = len(detailed_picks)
 
