@@ -735,7 +735,8 @@ async def get_picks(
     Get picks for a given year with player and picked person details.
     If limit is specified, returns that many results.
     If limit is not specified, returns paginated results with default page size of 10.
-    Returns data sorted by draft order.
+    Returns data sorted by timestamp in descending order (most recent first).
+    Players with no picks appear at the end, sorted by their draft order.
     """
     with Timer() as timer:
         try:
@@ -802,8 +803,8 @@ async def get_picks(
                     }
                     detailed_picks.append(pick_detail)
 
-            # Sort by draft order
-            detailed_picks.sort(key=lambda x: x["draft_order"])
+            # Sort by timestamp descending (None values last), then by draft order for no-pick players
+            detailed_picks.sort(key=lambda x: (x["pick_timestamp"] is None, x["pick_timestamp"] or "", x["draft_order"]), reverse=True)
 
             total_items = len(detailed_picks)
 
