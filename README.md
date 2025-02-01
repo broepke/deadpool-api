@@ -622,6 +622,68 @@ GET /api/v1/deadpool/picks
 
 Returns picks for a given year with detailed information about both players and their picked persons. Results are sorted by draft order.
 
+#### Get Picks by Person
+
+```json
+GET /api/v1/deadpool/picks/by-person/{person_id}
+```
+
+Returns all picks for a specific person across all players. This endpoint is particularly useful for finding out who picked a specific celebrity.
+
+Optional query parameters:
+- `year`: Filter picks by year (defaults to current year)
+- `page_size`: Number of items per page (default: 10, max: 100)
+- `page`: Page number for paginated results (default: 1)
+- `limit`: Alternative to pagination, returns a specific number of items
+
+Examples:
+
+```json
+# Get all picks for a specific person in the current year
+GET /api/v1/deadpool/picks/by-person/8b3b23bc-be64-4b7d-949d-8080a5267ed5
+
+# Get picks for a specific person in a particular year
+GET /api/v1/deadpool/picks/by-person/8b3b23bc-be64-4b7d-949d-8080a5267ed5?year=2024
+
+# Use limit instead of pagination
+GET /api/v1/deadpool/picks/by-person/8b3b23bc-be64-4b7d-949d-8080a5267ed5?limit=5
+```
+
+Response format:
+
+```json
+{
+  "message": "Successfully retrieved picks",
+  "data": [
+    {
+      "player_id": "xyz789",
+      "player_name": "John Smith",
+      "draft_order": 1,
+      "pick_person_id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
+      "pick_person_name": "Jane Doe",
+      "pick_person_age": 75,
+      "pick_person_birth_date": "1949-01-25",
+      "pick_person_death_date": "2024-01-25",
+      "pick_timestamp": "2024-01-01T12:00:00",
+      "year": 2024
+    }
+    // ... other picks for this person
+  ],
+  "total": 3,          // Total number of picks for this person
+  "page": 1,           // Current page number
+  "page_size": 10,     // Number of items per page
+  "total_pages": 1     // Total number of pages
+}
+```
+
+The response includes detailed information about:
+- Who picked the person (player_name)
+- When they were picked (pick_timestamp)
+- Person details (name, age, birth/death dates)
+- Year of the pick
+
+Results are sorted by pick timestamp in descending order (most recent first).
+
 Required query parameter:
 - `year`: Filter picks by year
 
