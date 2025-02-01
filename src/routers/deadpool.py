@@ -5,6 +5,7 @@ from datetime import datetime
 from ..models.deadpool import (
     PlayerResponse,
     PersonResponse,
+    PaginatedPersonResponse,
     PlayerUpdate,
     PersonUpdate,
     SinglePlayerResponse,
@@ -270,32 +271,119 @@ async def update_player(
             )
 
 
-@router.get("/people", response_model=PersonResponse)
-async def get_people():
+@router.get("/people", response_model=PaginatedPersonResponse)
+async def get_people(
+    status: Optional[str] = Query(None, description="Filter by status ('deceased' or 'alive')"),
+    limit: Optional[int] = Query(None, description="Limit the number of results returned. If not specified, pagination will be used."),
+    page: Optional[int] = Query(1, description="Page number for paginated results", ge=1),
+    page_size: Optional[int] = Query(10, description="Number of items per page", ge=1, le=100),
+):
     """
     Get a list of all people in the deadpool.
+    Supports pagination, limit, and status filtering.
+    If limit is specified, returns that many results.
+    If limit is not specified, returns paginated results with default page size of 10.
+    Status can be 'deceased' or 'alive'.
     """
     with Timer() as timer:
         try:
-            cwlogger.info("GET_PEOPLE_START", "Retrieving all people")
+            cwlogger.info(
+                "GET_PEOPLE_START",
+                "Retrieving people",
+                data={
+                    "status": status,
+                    "limit": limit,
+                    "page": page,
+                    "page_size": page_size
+                }
+            )
+
+            # Validate status parameter
+            if status and status not in ["deceased", "alive"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Status must be either 'deceased' or 'alive'"
+                )
 
             db = DynamoDBClient()
-            people = await db.get_people()
+            # Get all people with optional status filter
+            people = await db.get_people(status=status)
+
+            # Sort deceased people by death date in descending order
+            if status == "deceased":
+                people.sort(
+                    key=lambda x: x.get("metadata", {}).get("DeathDate", ""),
+                    reverse=True
+                )
+
+            total_items = len(people)
+
+            # Handle limit case
+            if limit is not None:
+                limited_people = people[:limit]
+                cwlogger.info(
+                    "GET_PEOPLE_COMPLETE",
+                    f"Retrieved {len(limited_people)} people (limited from {total_items})",
+                    data={
+                        "status": status,
+                        "limit": limit,
+                        "total_items": total_items,
+                        "returned_items": len(limited_people),
+                        "elapsed_ms": timer.elapsed_ms,
+                    },
+                )
+                return {
+                    "message": "Successfully retrieved people",
+                    "data": limited_people,
+                    "total": total_items,
+                    "page": 1,
+                    "page_size": limit,
+                    "total_pages": 1
+                }
+
+            # Handle pagination case
+            start_idx = (page - 1) * page_size
+            end_idx = start_idx + page_size
+            paginated_people = people[start_idx:end_idx]
+            total_pages = (total_items + page_size - 1) // page_size
 
             cwlogger.info(
                 "GET_PEOPLE_COMPLETE",
-                f"Retrieved {len(people)} people",
-                data={"total_count": len(people), "elapsed_ms": timer.elapsed_ms},
+                f"Retrieved {len(paginated_people)} people (page {page} of {total_pages})",
+                data={
+                    "status": status,
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_items,
+                    "total_pages": total_pages,
+                    "returned_items": len(paginated_people),
+                    "elapsed_ms": timer.elapsed_ms,
+                },
             )
 
-            return {"message": "Successfully retrieved people", "data": people}
+            return {
+                "message": "Successfully retrieved people",
+                "data": paginated_people,
+                "total": total_items,
+                "page": page,
+                "page_size": page_size,
+                "total_pages": total_pages
+            }
 
+        except HTTPException:
+            raise
         except Exception as e:
             cwlogger.error(
                 "GET_PEOPLE_ERROR",
                 "Error retrieving people",
                 error=e,
-                data={"elapsed_ms": timer.elapsed_ms},
+                data={
+                    "status": status,
+                    "limit": limit,
+                    "page": page,
+                    "page_size": page_size,
+                    "elapsed_ms": timer.elapsed_ms
+                },
             )
             raise HTTPException(
                 status_code=500, detail="An error occurred while retrieving people"

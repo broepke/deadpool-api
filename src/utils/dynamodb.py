@@ -203,9 +203,14 @@ class DynamoDBClient:
                 return []
 
 
-    async def get_people(self) -> List[Dict[str, Any]]:
+    async def get_people(
+        self,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
         """
-        Get all people from DynamoDB.
+        Get people from DynamoDB with optional status filter and limit.
+        Status can be 'deceased' or 'alive'.
         """
         params = {
             "FilterExpression": "SK = :details AND begins_with(PK, :person_prefix)",
@@ -215,9 +220,22 @@ class DynamoDBClient:
             },
         }
 
+        # Add status filter if specified
+        if status:
+            if status == "deceased":
+                params["FilterExpression"] += " AND attribute_exists(DeathDate)"
+            elif status == "alive":
+                params["FilterExpression"] += " AND attribute_not_exists(DeathDate)"
+
         response = self.table.scan(**params)
         items = response.get("Items", [])
-        return [self._transform_person(item) for item in items]
+        people = [self._transform_person(item) for item in items]
+
+        # Apply limit if specified
+        if limit is not None:
+            people = people[:limit]
+
+        return people
 
     async def get_player(
         self, player_id: str, year: Optional[int] = None

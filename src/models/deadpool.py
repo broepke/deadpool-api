@@ -175,11 +175,21 @@ class PlayerResponse(BaseModel):
     data: List[Player]
 
 
+class PaginatedPersonResponse(BaseModel):
+    """
+    Pydantic model for paginated API responses containing Person data.
+    """
+    message: str
+    data: List[Person]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
 class PersonResponse(BaseModel):
     """
     Pydantic model for API responses containing Person data.
     """
-
     message: str
     data: List[Person]
 
