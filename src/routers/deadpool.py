@@ -1437,81 +1437,73 @@ async def get_picks_by_person(
                 )
                 raise HTTPException(status_code=404, detail="Person not found")
 
+            # Get all draft orders to find years with data
+            draft_orders = await db.get_draft_order()
+            
             # If year is specified, only search that year
             if year:
                 years_to_search = {target_year}
-                all_players = await db.get_players(target_year)
             else:
-                # Get all years from 2024 to current year
-                current_year = datetime.now().year
-                years_to_search = set(range(2024, current_year + 1))
+                # Extract unique years from draft orders
+                years_to_search = {order["year"] for order in draft_orders}
                 
                 cwlogger.info(
                     "GET_PICKS_BY_PERSON_DEBUG",
-                    "Searching years",
-                    data={"years": list(years_to_search)}
+                    "Found years with draft orders",
+                    data={"years": sorted(list(years_to_search))}
                 )
-                
-                # Get all players from each year
-                all_players = []
-                for search_year in years_to_search:
-                    year_players = await db.get_players(search_year)
-                    cwlogger.info(
-                        "GET_PICKS_BY_PERSON_DEBUG",
-                        f"Found players for year {search_year}",
-                        data={
-                            "year": search_year,
-                            "player_count": len(year_players),
-                            "players": [{"id": p["id"], "name": p["name"]} for p in year_players]
-                        }
-                    )
-                    all_players.extend(year_players)
-                
-                # Remove duplicates based on player ID
-                seen_ids = set()
-                unique_players = []
-                for player in all_players:
-                    if player["id"] not in seen_ids:
-                        seen_ids.add(player["id"])
-                        unique_players.append(player)
-                all_players = unique_players
-                
+            
+            # Get all players for each year
+            all_players = []
+            for search_year in years_to_search:
+                year_players = await db.get_players(search_year)
                 cwlogger.info(
                     "GET_PICKS_BY_PERSON_DEBUG",
-                    "After deduplication",
+                    f"Found players for year {search_year}",
                     data={
-                        "unique_player_count": len(all_players),
-                        "players": [{"id": p["id"], "name": p["name"]} for p in all_players]
+                        "year": search_year,
+                        "player_count": len(year_players)
                     }
                 )
+                for player in year_players:
+                    player["year"] = search_year  # Ensure year is set correctly
+                    all_players.append(player)
             
             # Build the detailed pick information for this person
             detailed_picks = []
+            seen_picks = set()  # Track unique picks by player_id, year, and timestamp
+            
             for player in all_players:
-                for search_year in years_to_search:
-                    # Get picks for this player in each year
-                    picks = await db.get_player_picks(player["id"], search_year)
-                    
-                    # Filter picks for the specific person
-                    person_picks = [pick for pick in picks if pick["person_id"] == person_id]
+                # Only get picks for the year this player record is for
+                player_year = player["year"]
+                picks = await db.get_player_picks(player["id"], player_year)
                 
-                    for pick in person_picks:
-                        # Extract additional person details from metadata
-                        person_metadata = person.get("metadata", {})
+                # Filter picks for the specific person
+                for pick in picks:
+                    if pick["person_id"] == person_id:
+                        # Create unique key for this pick
+                        pick_key = f"{player['id']}_{player_year}_{pick['timestamp']}"
                         
-                        pick_detail = {
-                            "player_id": player["id"],
-                            "player_name": player["name"],
-                            "draft_order": player["draft_order"],
-                            "pick_person_id": person_id,
-                            "pick_person_name": person["name"],
-                            "pick_person_age": person_metadata.get("Age"),
-                            "pick_person_birth_date": person_metadata.get("BirthDate"),
-                            "pick_person_death_date": person_metadata.get("DeathDate"),
-                            "pick_timestamp": pick["timestamp"],
-                            "year": search_year,
-                        }
-                        detailed_picks.append(pick_detail)
+                        # Only add if we haven't seen this pick before
+                        if pick_key not in seen_picks:
+                            seen_picks.add(pick_key)
+                            
+                            # Extract additional person details from metadata
+                            person_metadata = person.get("metadata", {})
+                            
+                            pick_detail = {
+                                "player_id": player["id"],
+                                "player_name": player["name"],
+                                "draft_order": player["draft_order"],
+                                "pick_person_id": person_id,
+                                "pick_person_name": person["name"],
+                                "pick_person_age": person_metadata.get("Age"),
+                                "pick_person_birth_date": person_metadata.get("BirthDate"),
+                                "pick_person_death_date": person_metadata.get("DeathDate"),
+                                "pick_timestamp": pick["timestamp"],
+                                "year": player_year,
+                            }
+                            detailed_picks.append(pick_detail)
 
             # Sort by timestamp descending
             detailed_picks.sort(key=lambda x: x["pick_timestamp"] or "", reverse=True)
