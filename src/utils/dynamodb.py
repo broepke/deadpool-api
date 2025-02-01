@@ -469,18 +469,14 @@ class DynamoDBClient:
         Get all picks for a specific player, optionally filtered by year.
         """
         try:
+            # Always use KeyConditionExpression for both PK and SK
             params = {
-                "KeyConditionExpression": "PK = :pk",
-                "ExpressionAttributeValues": {":pk": f"PLAYER#{player_id}"},
+                "KeyConditionExpression": "PK = :pk AND begins_with(SK, :sk_prefix)",
+                "ExpressionAttributeValues": {
+                    ":pk": f"PLAYER#{player_id}",
+                    ":sk_prefix": f"PICK#{year}#" if year else "PICK#"
+                }
             }
-
-            # Add year filter if specified
-            if year:
-                params["KeyConditionExpression"] += " and begins_with(SK, :sk_prefix)"
-                params["ExpressionAttributeValues"][":sk_prefix"] = f"PICK#{year}#"
-            else:
-                params["FilterExpression"] = "begins_with(SK, :pick_prefix)"
-                params["ExpressionAttributeValues"][":pick_prefix"] = "PICK#"
 
             response = self.table.query(**params)
             items = response.get("Items", [])

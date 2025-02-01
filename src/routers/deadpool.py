@@ -1411,20 +1411,6 @@ async def get_picks_by_person(
     """
     with Timer() as timer:
         try:
-            target_year = year if year else datetime.now().year
-
-            cwlogger.info(
-                "GET_PICKS_BY_PERSON_START",
-                f"Retrieving picks for person {person_id}",
-                data={
-                    "person_id": person_id,
-                    "year": target_year,
-                    "limit": limit,
-                    "page": page,
-                    "page_size": page_size
-                },
-            )
-
             db = DynamoDBClient()
 
             # Verify person exists
@@ -1440,14 +1426,24 @@ async def get_picks_by_person(
             # Get all draft orders to find years with data
             draft_orders = await db.get_draft_order()
             
-            # If year is specified, only search that year
-            if year:
-                years_to_search = {target_year}
-            else:
-                # Extract unique years from draft orders
-                years_to_search = {order["year"] for order in draft_orders}
-                
-                cwlogger.info(
+            # If year parameter was provided, only search that year
+            # Otherwise search all years from draft orders
+            years_to_search = {year} if year is not None else {order["year"] for order in draft_orders}
+
+            cwlogger.info(
+                "GET_PICKS_BY_PERSON_START",
+                f"Retrieving picks for person {person_id}",
+                data={
+                    "person_id": person_id,
+                    "year": year,
+                    "years_to_search": sorted(list(years_to_search)),
+                    "limit": limit,
+                    "page": page,
+                    "page_size": page_size
+                },
+            )
+            
+            cwlogger.info(
                     "GET_PICKS_BY_PERSON_DEBUG",
                     "Found years with draft orders",
                     data={"years": sorted(list(years_to_search))}
@@ -1474,15 +1470,19 @@ async def get_picks_by_person(
             seen_picks = set()  # Track unique picks by player_id, year, and timestamp
             
             for player in all_players:
-                # Only get picks for the year this player record is for
-                player_year = player["year"]
-                picks = await db.get_player_picks(player["id"], player_year)
+                # Get picks for this player
+                # If year parameter was provided, filter by that year
+                # Otherwise pass None to search all years
+                picks = await db.get_player_picks(
+                    player["id"],
+                    year if year else None
+                )
                 
                 # Filter picks for the specific person
                 for pick in picks:
                     if pick["person_id"] == person_id:
-                        # Create unique key for this pick
-                        pick_key = f"{player['id']}_{player_year}_{pick['timestamp']}"
+                        # Create unique key for this pick using the year and timestamp
+                        pick_key = f"{player['id']}_{pick['timestamp']}"
                         
                         # Only add if we haven't seen this pick before
                         if pick_key not in seen_picks:
@@ -1501,7 +1501,7 @@ async def get_picks_by_person(
                                 "pick_person_birth_date": person_metadata.get("BirthDate"),
                                 "pick_person_death_date": person_metadata.get("DeathDate"),
                                 "pick_timestamp": pick["timestamp"],
-                                "year": player_year,
+                                "year": pick["year"],
                             }
                             detailed_picks.append(pick_detail)
 
@@ -1519,7 +1519,7 @@ async def get_picks_by_person(
                     data={
                         "person_id": person_id,
                         "person_name": person["name"],
-                        "year": target_year,
+                        "year": year,
                         "limit": limit,
                         "total_items": total_items,
                         "returned_items": len(limited_picks),
@@ -1547,7 +1547,7 @@ async def get_picks_by_person(
                 data={
                     "person_id": person_id,
                     "person_name": person["name"],
-                    "year": target_year,
+                    "year": year,
                     "page": page,
                     "page_size": page_size,
                     "total_items": total_items,
@@ -1575,7 +1575,7 @@ async def get_picks_by_person(
                 error=e,
                 data={
                     "person_id": person_id,
-                    "year": target_year,
+                    "year": year,
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
