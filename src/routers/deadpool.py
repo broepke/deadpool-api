@@ -14,7 +14,6 @@ from ..models.deadpool import (
     DraftOrderListResponse,
     PlayerPickResponse,
     PlayerPickUpdate,
-    PickDetailResponse,
     PaginatedPickDetailResponse,
     NextDrafterResponse,
     LeaderboardResponse,
