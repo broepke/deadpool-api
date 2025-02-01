@@ -411,7 +411,58 @@ PUT /api/v1/deadpool/players/xyz789
 GET /api/v1/deadpool/people
 ```
 
-Returns all people in the deadpool.
+Returns a paginated list of people in the deadpool. Supports filtering by status and optional pagination or limit.
+
+Optional query parameters:
+- `status`: Filter by status ('deceased' or 'alive')
+- `page_size`: Number of items per page (default: 10, max: 100)
+- `page`: Page number for paginated results (default: 1)
+- `limit`: Alternative to pagination, returns a specific number of items
+
+When status=deceased is specified, results are sorted by death date in descending order (most recent first).
+
+Examples:
+
+```json
+# Default pagination (10 items per page)
+GET /api/v1/deadpool/people
+
+# Filter by status with custom page size
+GET /api/v1/deadpool/people?status=deceased&page_size=20
+
+# Get specific page of alive people
+GET /api/v1/deadpool/people?status=alive&page=2&page_size=20
+
+# Use limit instead of pagination
+GET /api/v1/deadpool/people?limit=50
+```
+
+Response format:
+
+```json
+{
+  "message": "Successfully retrieved people",
+  "data": [
+    {
+      "id": "8b3b23bc-be64-4b7d-949d-8080a5267ed5",
+      "name": "Jane Doe",
+      "status": "deceased",
+      "metadata": {
+        "Age": 75,
+        "BirthDate": "1949-01-25",
+        "DeathDate": "2024-01-25"
+      }
+    }
+    // ... other people
+  ],
+  "total": 55,         // Total number of items available
+  "page": 1,           // Current page number
+  "page_size": 10,     // Number of items per page
+  "total_pages": 6     // Total number of pages
+}
+```
+
+Note: The pagination metadata (total, page, page_size, total_pages) is always included in the response, even when using the limit parameter. When using limit, page will be 1 and total_pages will be 1.
 
 #### Get Single Person
 
