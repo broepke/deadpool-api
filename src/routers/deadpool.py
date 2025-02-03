@@ -1319,7 +1319,8 @@ async def get_picks_counts(
 ):
     """
     Get pick counts for all players in a specific year.
-    Returns a list of players with their pick counts, sorted by draft order.
+    Returns a list of players with their pick counts (only counting picks for living people),
+    sorted by draft order.
     """
     with Timer() as timer:
         try:
@@ -1343,11 +1344,18 @@ async def get_picks_counts(
                 # Get all picks for this player in the year
                 picks = await db.get_player_picks(player["id"], target_year)
 
+                # Count only picks for people who are alive
+                alive_pick_count = 0
+                for pick in picks:
+                    person = await db.get_person(pick["person_id"])
+                    if person and "DeathDate" not in person.get("metadata", {}):
+                        alive_pick_count += 1
+
                 picks_count_entry = PicksCountEntry(
                     player_id=player["id"],
                     player_name=player["name"],
                     draft_order=player["draft_order"],
-                    pick_count=len(picks),
+                    pick_count=alive_pick_count,
                     year=target_year,
                 )
                 picks_counts.append(picks_count_entry)
