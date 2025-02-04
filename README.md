@@ -248,7 +248,7 @@ The API uses a robust fuzzy name matching system to handle variations in celebri
 
 - Case-insensitive matching
 - Punctuation normalization (removing/standardizing periods, commas)
-- Suffix standardization (Jr./Jr, III/3, etc.)
+- Suffix standardization (Jr./Jr, /, III/3, etc.)
 - Fuzzy matching using the RapidFuzz algorithm
 
 ### Configuration Parameters
