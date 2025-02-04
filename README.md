@@ -41,7 +41,8 @@ The API is configured to work with API Gateway using:
 
 - Stages: /dev and /prod
 - Base path: /api/v1/deadpool
-- Example endpoint: https://[api-id].execute-api.[region].amazonaws.com/dev/api/v1/deadpool/players
+- Dev Endpoint: [https://deadpool-api-dev.dataknowsall.com](https://deadpool-api-dev.dataknowsall.com)
+- Prod Endpoint: [https://deadpool-api.dataknowsall.com](https://deadpool-api.dataknowsall.com)
 
 Configuration requirements:
 
@@ -365,6 +366,47 @@ Example:
 ```json
 GET /api/v1/deadpool/players/xyz789?year=2024
 ```
+
+#### Update Player Profile
+
+```json
+PUT /api/v1/deadpool/players/{player_id}/profile
+```
+
+Updates a player's profile information. This endpoint allows updating personal details and notification preferences.
+
+Fields that can be updated:
+- `first_name`: Player's first name
+- `last_name`: Player's last name
+- `phone_number`: Player's phone number
+- `phone_verified`: Whether the phone number is verified
+- `sms_notifications_enabled`: Whether SMS notifications are enabled
+- `metadata`: Additional metadata key-value pairs
+
+Example updating a player's profile:
+
+```json
+PUT /api/v1/deadpool/players/xyz789/profile
+{
+    "first_name": "John",
+    "last_name": "Smith",
+    "phone_number": "+1234567890",
+    "sms_notifications_enabled": true,
+    "metadata": {
+        "team": "Red Sox"
+    }
+}
+```
+
+Response:
+
+```json
+{
+    "message": "Successfully updated player profile"
+}
+```
+
+All fields are optional - only the fields that need to be updated need to be included in the request.
 
 #### Create or Update Player
 
