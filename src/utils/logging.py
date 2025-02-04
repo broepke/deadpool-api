@@ -59,10 +59,11 @@ class CloudWatchLogger:
         if context:
             log_entry["context"] = context
         if error:
+            import traceback
             log_entry["error"] = {
                 "type": error.__class__.__name__,
                 "message": str(error),
-                "traceback": getattr(error, '__traceback__', None)
+                "traceback": "".join(traceback.format_tb(error.__traceback__)) if error.__traceback__ else None
             }
             
         return json.dumps(log_entry)

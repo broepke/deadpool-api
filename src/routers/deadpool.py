@@ -1,4 +1,9 @@
 from fastapi import APIRouter, HTTPException, Query, Path
+from typing import Dict, Any
+
+def get_player_name(player: Dict[str, Any]) -> str:
+    """Helper function to get player's full name from FirstName and LastName."""
+    return f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip()
 from typing import Optional
 import uuid
 from datetime import datetime
@@ -22,6 +27,8 @@ from ..models.deadpool import (
     DraftResponse,
     PicksCountResponse,
     PicksCountEntry,
+    PlayerProfileUpdate,
+    ProfileUpdateResponse,
 )
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
@@ -155,7 +162,7 @@ async def get_player(
                 f"Retrieved player {player_id}",
                 data={
                     "player_id": player_id,
-                    "player_name": player["name"],
+                    "player_name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
                     "year": target_year,
                     "elapsed_ms": timer.elapsed_ms,
                 },
@@ -180,6 +187,83 @@ async def get_player(
                 status_code=500, detail="An error occurred while retrieving player"
             )
 
+
+@router.put("/players/{player_id}/profile", response_model=ProfileUpdateResponse)
+async def update_player_profile(
+    player_id: str = Path(..., description="The ID of the player to update"),
+    updates: PlayerProfileUpdate = None,
+):
+    """
+    Update a player's profile information.
+
+    Fields that can be updated:
+    - first_name: Player's first name
+    - last_name: Player's last name
+    - phone_number: Player's phone number
+    - phone_verified: Whether the phone number is verified
+    - sms_notifications_enabled: Whether SMS notifications are enabled
+    """
+    with Timer() as timer:
+        try:
+            if not updates:
+                cwlogger.warning(
+                    "UPDATE_PLAYER_PROFILE_ERROR",
+                    "No update data provided",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=400, detail="Update data is required")
+
+            cwlogger.info(
+                "UPDATE_PLAYER_PROFILE_START",
+                f"Updating player profile {player_id}",
+                data={
+                    "player_id": player_id,
+                    "updates": updates.dict(exclude_unset=True),
+                },
+            )
+
+            db = DynamoDBClient()
+            
+            # Verify player exists
+            existing_player = await db.get_player(player_id)
+            if not existing_player:
+                cwlogger.warning(
+                    "UPDATE_PLAYER_PROFILE_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+
+            await db.update_player(
+                player_id, updates.dict(exclude_unset=True)
+            )
+
+            cwlogger.info(
+                "UPDATE_PLAYER_PROFILE_COMPLETE",
+                "Successfully updated player profile",
+                data={
+                    "player_id": player_id,
+                    "elapsed_ms": timer.elapsed_ms,
+                },
+            )
+
+            return {
+                "message": "Successfully updated player profile"
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "UPDATE_PLAYER_PROFILE_ERROR",
+                "Error updating player profile",
+                error=e,
+                data={"player_id": player_id, "elapsed_ms": timer.elapsed_ms},
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while updating player profile"
+            )
 
 @router.put("/players/{player_id}", response_model=PlayerResponse)
 async def update_player(

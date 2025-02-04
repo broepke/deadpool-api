@@ -291,11 +291,16 @@ class DynamoDBClient:
                 return None
 
             # Transform player data
+            first_name = player.get("FirstName", "")
+            last_name = player.get("LastName", "")
             return {
                 "id": clean_player_id,
-                "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
+                "name": f"{first_name} {last_name}".strip(),
                 "draft_order": draft_order,
                 "year": target_year,
+                "phone_number": player.get("PhoneNumber"),
+                "phone_verified": player.get("PhoneVerified", False),
+                "sms_notifications_enabled": player.get("SmsNotificationsEnabled", True),
                 "metadata": {
                     k: (
                         int(v)
@@ -305,7 +310,7 @@ class DynamoDBClient:
                         else v
                     )
                     for k, v in player.items()
-                    if k not in ["PK", "SK", "FirstName", "LastName"]
+                    if k not in ["PK", "SK", "FirstName", "LastName", "PhoneNumber", "PhoneVerified", "SmsNotificationsEnabled"]
                 },
             }
         except Exception as e:
@@ -335,18 +340,24 @@ class DynamoDBClient:
         Update or create a player in DynamoDB.
         """
         try:
-            # Prepare player item
-            item = {"PK": f"PLAYER#{player_id}", "SK": "DETAILS", "Type": "Player"}
+            # Get existing item first
+            response = self.table.get_item(Key={"PK": f"PLAYER#{player_id}", "SK": "DETAILS"})
+            item = response.get("Item", {})
+            if not item:
+                # New item
+                item = {"PK": f"PLAYER#{player_id}", "SK": "DETAILS", "Type": "Player"}
 
-            # Handle name by splitting into FirstName and LastName
-            if "name" in updates:
-                names = updates["name"].split(" ", 1)
-                if len(names) == 2:
-                    item["FirstName"] = names[0]
-                    item["LastName"] = names[1]
-                else:
-                    item["FirstName"] = names[0]
-                    item["LastName"] = ""
+            # Handle profile fields
+            if "first_name" in updates:
+                item["FirstName"] = updates["first_name"]
+            if "last_name" in updates:
+                item["LastName"] = updates["last_name"]
+            if "phone_number" in updates:
+                item["PhoneNumber"] = updates["phone_number"]
+            if "phone_verified" in updates:
+                item["PhoneVerified"] = updates["phone_verified"]
+            if "sms_notifications_enabled" in updates:
+                item["SmsNotificationsEnabled"] = updates["sms_notifications_enabled"]
 
             # Handle metadata
             if updates.get("metadata"):

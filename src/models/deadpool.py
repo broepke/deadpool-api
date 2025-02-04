@@ -108,10 +108,20 @@ class PlayerUpdate(BaseModel):
     """
     Pydantic model for updating Player data.
     """
-
-    name: Optional[str] = None
     draft_order: Optional[int] = None
     year: Optional[int] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class PlayerProfileUpdate(BaseModel):
+    """
+    Pydantic model for updating Player Profile data.
+    """
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    phone_verified: Optional[bool] = None
+    sms_notifications_enabled: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
 
 
@@ -134,6 +144,9 @@ class Player(BaseModel):
     name: str
     draft_order: int
     year: int
+    phone_number: Optional[str] = None
+    phone_verified: bool = False
+    sms_notifications_enabled: bool = True
     metadata: Optional[dict] = None
 
 
@@ -247,6 +260,12 @@ class PicksCountResponse(BaseModel):
     message: str
     data: List[PicksCountEntry]
 
+
+class ProfileUpdateResponse(BaseModel):
+    """
+    Pydantic model for profile update response.
+    """
+    message: str
 
 class LeaderboardResponse(BaseModel):
     """
