@@ -145,9 +145,8 @@ class Player(BaseModel):
     draft_order: int
     year: int
     phone_number: Optional[str] = None
-    phone_verified: bool = False
-    sms_notifications_enabled: bool = True
-    metadata: Optional[dict] = None
+    phone_verified: Optional[bool] = None
+    sms_notifications_enabled: Optional[bool] = None
 
 
 class Person(BaseModel):

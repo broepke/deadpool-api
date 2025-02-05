@@ -148,17 +148,9 @@ class DynamoDBClient:
                             "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
                             "draft_order": draft_order,
                             "year": target_year,
-                            "metadata": {
-                                k: (
-                                    int(v)
-                                    if isinstance(v, Decimal) and v % 1 == 0
-                                    else float(v)
-                                    if isinstance(v, Decimal)
-                                    else v
-                                )
-                                for k, v in player.items()
-                                if k not in ["PK", "SK", "FirstName", "LastName"]
-                            },
+                            "phone_number": player.get("PhoneNumber"),
+                            "phone_verified": player.get("PhoneVerified"),
+                            "sms_notifications_enabled": player.get("SmsNotificationsEnabled"),
                         }
                         transformed_players.append(transformed)
                     except Exception as e:
@@ -301,17 +293,9 @@ class DynamoDBClient:
                 "phone_number": player.get("PhoneNumber"),
                 "phone_verified": player.get("PhoneVerified", False),
                 "sms_notifications_enabled": player.get("SmsNotificationsEnabled", True),
-                "metadata": {
-                    k: (
-                        int(v)
-                        if isinstance(v, Decimal) and v % 1 == 0
-                        else float(v)
-                        if isinstance(v, Decimal)
-                        else v
-                    )
-                    for k, v in player.items()
-                    if k not in ["PK", "SK", "FirstName", "LastName", "PhoneNumber", "PhoneVerified", "SmsNotificationsEnabled"]
-                },
+                "phone_number": player.get("PhoneNumber"),
+                "phone_verified": player.get("PhoneVerified"),
+                "sms_notifications_enabled": player.get("SmsNotificationsEnabled"),
             }
         except Exception as e:
             print(f"Error getting player {player_id}: {str(e)}")
