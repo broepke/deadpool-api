@@ -293,9 +293,6 @@ class DynamoDBClient:
                 "phone_number": player.get("PhoneNumber"),
                 "phone_verified": player.get("PhoneVerified", False),
                 "sms_notifications_enabled": player.get("SmsNotificationsEnabled", True),
-                "phone_number": player.get("PhoneNumber"),
-                "phone_verified": player.get("PhoneVerified"),
-                "sms_notifications_enabled": player.get("SmsNotificationsEnabled"),
             }
         except Exception as e:
             print(f"Error getting player {player_id}: {str(e)}")
