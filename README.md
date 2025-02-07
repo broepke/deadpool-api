@@ -98,6 +98,17 @@ CORS is configured at the API Gateway level using stage variables to support dif
 
 Note: The Mangum handler in lambda_function.py is configured without api_gateway_base_path to support multiple stages.
 
+## DynamoDB PartiQL Queries
+
+Find all people who are not deceased
+
+```sql
+SELECT * FROM "Deadpool" 
+WHERE begins_with(PK, 'PERSON#')
+AND SK = 'DETAILS'
+AND attribute_not_exists(DeathDate)
+```
+
 ## CloudWatch Insights Queries
 
 The following CloudWatch Insights queries are useful for monitoring and troubleshooting the API:
