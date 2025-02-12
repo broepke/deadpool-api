@@ -6,8 +6,12 @@ def get_player_name(player: Dict[str, Any]) -> str:
     return f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip()
 from typing import Optional
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from ..models.deadpool import (
+    PhoneVerificationRequest,
+    PhoneVerificationResponse,
+    CodeVerificationRequest,
+    CodeVerificationResponse,
     PlayerResponse,
     PersonResponse,
     PaginatedPersonResponse,
@@ -33,6 +37,15 @@ from ..models.deadpool import (
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
 from ..utils.name_matching import names_match
+from ..utils.sns import (
+    generate_verification_code,
+    send_verification_code,
+    manage_sns_subscription,
+    validate_phone_number
+)
+
+# SNS Topic ARN for notifications
+SNS_TOPIC_ARN = "arn:aws:sns:us-east-1:123456789012:deadpool-notifications"
 
 router = APIRouter(
     prefix="/api/v1/deadpool",
@@ -263,6 +276,257 @@ async def update_player_profile(
             raise HTTPException(
                 status_code=500,
                 detail="An error occurred while updating player profile"
+            )
+
+@router.post("/players/{player_id}/phone/request-verification", response_model=PhoneVerificationResponse)
+async def request_phone_verification(
+    player_id: str = Path(..., description="The ID of the player to verify phone for"),
+    request: PhoneVerificationRequest = None,
+):
+    """
+    Request phone number verification for a player.
+    Sends a verification code via SMS and stores it in the player's profile.
+    The code expires after 10 minutes.
+    Rate limited to 3 attempts per 10 minutes.
+    """
+    with Timer() as timer:
+        try:
+            if not request:
+                cwlogger.warning(
+                    "PHONE_VERIFICATION_REQUEST_ERROR",
+                    "No request data provided",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=400, detail="Request data is required")
+
+            # Validate phone number format
+            if not validate_phone_number(request.phone_number):
+                cwlogger.warning(
+                    "PHONE_VERIFICATION_REQUEST_ERROR",
+                    "Invalid phone number format",
+                    data={
+                        "player_id": player_id,
+                        "phone_number": request.phone_number
+                    },
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Invalid phone number format. Must be in E.164 format (e.g., +12345678900)"
+                )
+
+            db = DynamoDBClient()
+            
+            # Verify player exists
+            player = await db.get_player(player_id)
+            if not player:
+                cwlogger.warning(
+                    "PHONE_VERIFICATION_REQUEST_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+
+            # Check rate limiting (max 3 attempts per 10 minutes)
+            verification_timestamp = player.get("verification_timestamp")
+            if verification_timestamp:
+                last_attempt = datetime.fromisoformat(verification_timestamp)
+                if last_attempt > datetime.utcnow() - timedelta(minutes=10):
+                    cwlogger.warning(
+                        "PHONE_VERIFICATION_REQUEST_ERROR",
+                        "Rate limit exceeded",
+                        data={
+                            "player_id": player_id,
+                            "last_attempt": verification_timestamp
+                        },
+                    )
+                    raise HTTPException(
+                        status_code=429,
+                        detail="Please wait before requesting another verification code"
+                    )
+
+            # Generate and store verification code
+            code = generate_verification_code()
+            verification_timestamp = datetime.utcnow().isoformat()
+
+            # Update player profile with verification data
+            await db.update_player(
+                player_id,
+                {
+                    "phone_number": request.phone_number,
+                    "verification_code": code,
+                    "verification_timestamp": verification_timestamp
+                }
+            )
+
+            # Send verification code via SNS
+            message_id = send_verification_code(request.phone_number, code)
+
+            cwlogger.info(
+                "PHONE_VERIFICATION_REQUEST_COMPLETE",
+                "Successfully sent verification code",
+                data={
+                    "player_id": player_id,
+                    "message_id": message_id,
+                    "elapsed_ms": timer.elapsed_ms,
+                },
+            )
+
+            return {
+                "message": "Verification code sent successfully",
+                "data": {
+                    "message_id": message_id,
+                    "expires_at": (datetime.fromisoformat(verification_timestamp) + timedelta(minutes=10)).isoformat()
+                }
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "PHONE_VERIFICATION_REQUEST_ERROR",
+                "Error processing verification request",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "elapsed_ms": timer.elapsed_ms
+                },
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while processing the verification request"
+            )
+
+@router.post("/players/{player_id}/phone/verify", response_model=CodeVerificationResponse)
+async def verify_phone_code(
+    player_id: str = Path(..., description="The ID of the player to verify code for"),
+    request: CodeVerificationRequest = None,
+):
+    """
+    Verify a phone number using the provided verification code.
+    The code must be verified within 10 minutes of being sent.
+    Upon successful verification, the phone number is marked as verified
+    and subscribed to SMS notifications.
+    """
+    with Timer() as timer:
+        try:
+            if not request:
+                cwlogger.warning(
+                    "PHONE_CODE_VERIFICATION_ERROR",
+                    "No verification code provided",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=400, detail="Verification code is required")
+
+            db = DynamoDBClient()
+            
+            # Get player profile
+            player = await db.get_player(player_id)
+            if not player:
+                cwlogger.warning(
+                    "PHONE_CODE_VERIFICATION_ERROR",
+                    "Player not found",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=404, detail="Player not found")
+
+            # Verify code exists and hasn't expired
+            stored_code = player.get("verification_code")
+            verification_timestamp = player.get("verification_timestamp")
+
+            if not stored_code or not verification_timestamp:
+                cwlogger.warning(
+                    "PHONE_CODE_VERIFICATION_ERROR",
+                    "No verification code found",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="No verification code found. Please request a new code."
+                )
+
+            # Check code expiration (10 minutes)
+            if datetime.fromisoformat(verification_timestamp) < datetime.utcnow() - timedelta(minutes=10):
+                cwlogger.warning(
+                    "PHONE_CODE_VERIFICATION_ERROR",
+                    "Verification code expired",
+                    data={
+                        "player_id": player_id,
+                        "verification_timestamp": verification_timestamp
+                    },
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail="Verification code has expired. Please request a new code."
+                )
+
+            # Verify code matches
+            if request.code != stored_code:
+                cwlogger.warning(
+                    "PHONE_CODE_VERIFICATION_ERROR",
+                    "Invalid verification code",
+                    data={"player_id": player_id},
+                )
+                raise HTTPException(status_code=400, detail="Invalid verification code")
+
+            # Subscribe to notifications
+            subscription_arn = None
+            try:
+                subscription_arn = manage_sns_subscription(
+                    player["phone_number"],
+                    SNS_TOPIC_ARN,
+                    subscribe=True
+                )
+            except Exception as e:
+                cwlogger.error(
+                    "SNS_SUBSCRIPTION_ERROR",
+                    "Error subscribing to notifications",
+                    error=e,
+                    data={"player_id": player_id},
+                )
+                # Continue with verification even if subscription fails
+                pass
+
+            # Update player profile
+            await db.update_player(
+                player_id,
+                {
+                    "phone_verified": True,
+                    "sms_notifications_enabled": True  # Enable notifications by default after verification
+                }
+            )
+
+            cwlogger.info(
+                "PHONE_CODE_VERIFICATION_COMPLETE",
+                "Successfully verified phone number",
+                data={
+                    "player_id": player_id,
+                    "subscription_arn": subscription_arn,
+                    "elapsed_ms": timer.elapsed_ms,
+                },
+            )
+
+            return {
+                "message": "Phone number successfully verified",
+                "data": {
+                    "verified": True
+                }
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "PHONE_CODE_VERIFICATION_ERROR",
+                "Error verifying phone code",
+                error=e,
+                data={
+                    "player_id": player_id,
+                    "elapsed_ms": timer.elapsed_ms
+                },
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while verifying the phone code"
             )
 
 @router.put("/players/{player_id}", response_model=PlayerResponse)

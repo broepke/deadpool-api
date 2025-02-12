@@ -260,6 +260,32 @@ class PicksCountResponse(BaseModel):
     data: List[PicksCountEntry]
 
 
+class PhoneVerificationRequest(BaseModel):
+    """
+    Pydantic model for requesting phone verification.
+    """
+    phone_number: str
+
+class PhoneVerificationResponse(BaseModel):
+    """
+    Pydantic model for phone verification response.
+    """
+    message: str
+    data: Dict[str, Any]
+
+class CodeVerificationRequest(BaseModel):
+    """
+    Pydantic model for verifying a phone code.
+    """
+    code: str
+
+class CodeVerificationResponse(BaseModel):
+    """
+    Pydantic model for code verification response.
+    """
+    message: str
+    data: Dict[str, Any]
+
 class ProfileUpdateResponse(BaseModel):
     """
     Pydantic model for profile update response.

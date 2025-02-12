@@ -151,6 +151,8 @@ class DynamoDBClient:
                             "phone_number": player.get("PhoneNumber"),
                             "phone_verified": player.get("PhoneVerified"),
                             "sms_notifications_enabled": player.get("SmsNotificationsEnabled"),
+                            "verification_code": player.get("VerificationCode"),
+                            "verification_timestamp": player.get("VerificationTimestamp"),
                         }
                         transformed_players.append(transformed)
                     except Exception as e:
@@ -293,6 +295,8 @@ class DynamoDBClient:
                 "phone_number": player.get("PhoneNumber"),
                 "phone_verified": player.get("PhoneVerified", False),
                 "sms_notifications_enabled": player.get("SmsNotificationsEnabled", True),
+                "verification_code": player.get("VerificationCode"),
+                "verification_timestamp": player.get("VerificationTimestamp"),
             }
         except Exception as e:
             print(f"Error getting player {player_id}: {str(e)}")
@@ -335,10 +339,26 @@ class DynamoDBClient:
                 item["LastName"] = updates["last_name"]
             if "phone_number" in updates:
                 item["PhoneNumber"] = updates["phone_number"]
+                # Reset verification status when phone number changes
+                item["PhoneVerified"] = False
+                # Clear any existing verification data
+                if "VerificationCode" in item:
+                    del item["VerificationCode"]
+                if "VerificationTimestamp" in item:
+                    del item["VerificationTimestamp"]
             if "phone_verified" in updates:
                 item["PhoneVerified"] = updates["phone_verified"]
+                # Clear verification data when verified
+                if updates["phone_verified"]:
+                    if "VerificationCode" in item:
+                        del item["VerificationCode"]
+                    if "VerificationTimestamp" in item:
+                        del item["VerificationTimestamp"]
             if "sms_notifications_enabled" in updates:
                 item["SmsNotificationsEnabled"] = updates["sms_notifications_enabled"]
+            if "verification_code" in updates:
+                item["VerificationCode"] = updates["verification_code"]
+                item["VerificationTimestamp"] = updates["verification_timestamp"]
 
             # Handle metadata
             if updates.get("metadata"):

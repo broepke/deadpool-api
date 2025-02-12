@@ -391,8 +391,67 @@ Fields that can be updated:
 - `last_name`: Player's last name
 - `phone_number`: Player's phone number
 - `phone_verified`: Whether the phone number is verified
-- `sms_notifications_enabled`: Whether SMS notifications are enabled
+- `sms_notifications_enabled`: Whether SMS notifications are enabled (can opt out of notifications)
 - `metadata`: Additional metadata key-value pairs
+
+#### Phone Verification
+
+The API provides two endpoints for phone number verification:
+
+```json
+POST /api/v1/deadpool/players/{player_id}/phone/request-verification
+```
+
+Request a verification code for a phone number. The code will be sent via SMS and expires after 10 minutes.
+
+Request body:
+```json
+{
+    "phone_number": "+12345678900"  // Must be in E.164 format
+}
+```
+
+Response:
+```json
+{
+    "message": "Verification code sent successfully",
+    "data": {
+        "message_id": "71df0f07-52a6-535c-bc13-6f21ae8207e7",
+        "expires_at": "2025-02-12T19:53:31.863148"
+    }
+}
+```
+
+```json
+POST /api/v1/deadpool/players/{player_id}/phone/verify
+```
+
+Verify a phone number using the received code. Upon successful verification:
+- Phone number is marked as verified
+- SMS notifications are enabled by default (can be disabled later through profile updates)
+- Verification code is cleared from the system
+
+Request body:
+```json
+{
+    "code": "123456"  // 6-digit verification code
+}
+```
+
+Response:
+```json
+{
+    "message": "Phone number successfully verified",
+    "data": {
+        "verified": true
+    }
+}
+```
+
+Rate limiting:
+- Maximum 3 verification code requests per 10 minutes
+- Codes expire after 10 minutes
+- Must request a new code after expiration
 
 Example updating a player's profile:
 
