@@ -1604,11 +1604,20 @@ async def get_next_drafter():
 
             if not player_data:
                 cwlogger.warning(
-                    "GET_NEXT_DRAFTER_ERROR",
+                    "GET_NEXT_DRAFTER_WARNING",
                     "No eligible players found",
                     data={"year": year, "total_players": len(players)},
                 )
-                raise HTTPException(status_code=404, detail="No eligible players found")
+                return {
+                    "message": "No eligible players found",
+                    "data": {
+                        "player_id": "",
+                        "player_name": "",
+                        "draft_order": 0,
+                        "current_pick_count": 0,
+                        "active_pick_count": 0
+                    }
+                }
 
             # Sort by pick count first, then by draft order
             player_data.sort(key=lambda x: (x["pick_count"], x["draft_order"]))
