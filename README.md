@@ -319,6 +319,87 @@ uvicorn src.main:app --reload
 
 ## API Endpoints
 
+### Search
+
+#### Search Entities
+
+```json
+GET /api/v1/deadpool/search
+```
+
+Search for entities (people or players) by name. Supports fuzzy matching and pagination.
+
+Query Parameters:
+- `q` (required): Search query string
+  - Can be full name (e.g., "John Travolta")
+  - First name only (e.g., "John")
+  - Last name only (e.g., "Travolta")
+  - Partial name (e.g., "Trav")
+- `type` (optional): Entity type to search
+  - Default: "people"
+  - Values: "people" | "players"
+- `mode` (optional): Search mode
+  - Default: "fuzzy"
+  - Values: "fuzzy" | "exact"
+  - Use "fuzzy" for partial matches and typo tolerance
+  - Use "exact" for precise matching
+- `limit` (optional): Maximum number of results
+  - Default: 10
+  - Range: 1-100
+- `offset` (optional): Number of results to skip
+  - Default: 0
+  - Used for pagination
+
+Example Requests:
+```json
+# Basic search
+GET /api/v1/deadpool/search?q=John
+
+# Search with all parameters
+GET /api/v1/deadpool/search?q=John&type=people&mode=fuzzy&limit=5&offset=0
+
+# Exact match search
+GET /api/v1/deadpool/search?q=John%20Travolta&mode=exact
+```
+
+Response format:
+```json
+{
+  "message": "Successfully retrieved search results",
+  "data": [
+    {
+      "id": "72798149-463b-476d-9580-6d8c0dd35d0a",
+      "type": "people",
+      "attributes": {
+        "name": "John Travolta",
+        "status": "alive",
+        "metadata": {
+          "Age": 71,
+          "BirthDate": "1954-02-18",
+          "WikiID": "Q80938",
+          "WikiPage": "John_Travolta"
+        }
+      },
+      "score": 1.0  // Match confidence (1.0 = exact match)
+    }
+  ],
+  "metadata": {
+    "total": 5,      // Total matches found
+    "limit": 10,     // Results per page
+    "offset": 0,     // Current offset
+    "query": "John"  // Original search query
+  }
+}
+```
+
+Notes:
+- Searches are case-insensitive
+- Fuzzy mode will match partial names and similar spellings
+- Results are sorted by match score (highest first)
+- Empty results will return an empty data array with total: 0
+- HTTP 400 error if query parameter is missing
+- HTTP 400 error if invalid type or mode is provided
+
 ### Base Endpoint
 
 #### Get Available Routes

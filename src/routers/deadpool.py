@@ -1,9 +1,4 @@
 from fastapi import APIRouter, HTTPException, Query, Path
-from typing import Dict, Any
-
-def get_player_name(player: Dict[str, Any]) -> str:
-    """Helper function to get player's full name from FirstName and LastName."""
-    return f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip()
 from typing import Optional
 import uuid
 from datetime import datetime, timedelta
@@ -33,10 +28,12 @@ from ..models.deadpool import (
     PicksCountEntry,
     PlayerProfileUpdate,
     ProfileUpdateResponse,
+    SearchResponse,  # Add new search response model
 )
+from ..services.search import SearchService  # Add search service
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
-from ..utils.name_matching import names_match
+from ..utils.name_matching import names_match, get_player_name
 from ..utils.sns import (
     generate_verification_code,
     send_verification_code,
@@ -175,7 +172,7 @@ async def get_player(
                 f"Retrieved player {player_id}",
                 data={
                     "player_id": player_id,
-                    "player_name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
+                    "player_name": get_player_name(player),
                     "year": target_year,
                     "elapsed_ms": timer.elapsed_ms,
                 },
@@ -864,6 +861,93 @@ async def update_person(
             )
             raise HTTPException(
                 status_code=500, detail="An error occurred while updating person"
+            )
+
+
+@router.get("/search", response_model=SearchResponse)
+async def search_entities(
+    q: str = Query(..., description="Search query string"),
+    type: Optional[str] = Query("people", description="Entity type to search (people or players)"),
+    mode: Optional[str] = Query("fuzzy", description="Search mode (exact or fuzzy)"),
+    limit: Optional[int] = Query(10, description="Maximum number of results", ge=1, le=100),
+    offset: Optional[int] = Query(0, description="Pagination offset", ge=0),
+):
+    """
+    Search for entities by name.
+    Supports fuzzy matching and pagination.
+    Currently supports searching for people and players.
+    """
+    with Timer() as timer:
+        try:
+            # Validate entity type
+            if type and type not in ["people", "players"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Entity type must be either 'people' or 'players'"
+                )
+
+            # Validate search mode
+            if mode and mode not in ["exact", "fuzzy"]:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Search mode must be either 'exact' or 'fuzzy'"
+                )
+
+            cwlogger.info(
+                "SEARCH_START",
+                "Starting entity search",
+                data={
+                    "query": q,
+                    "type": type,
+                    "mode": mode,
+                    "limit": limit,
+                    "offset": offset
+                }
+            )
+
+            search_service = SearchService(DynamoDBClient())
+            results = await search_service.search_entities(
+                query=q,
+                entity_type=type,
+                mode=mode,
+                limit=limit,
+                offset=offset
+            )
+
+            cwlogger.info(
+                "SEARCH_COMPLETE",
+                "Search completed successfully",
+                data={
+                    "query": q,
+                    "type": type,
+                    "results_count": len(results["data"]),
+                    "total_matches": results["metadata"]["total"],
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+
+            return {
+                "message": "Successfully retrieved search results",
+                **results
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            cwlogger.error(
+                "SEARCH_ERROR",
+                "Error performing search",
+                error=e,
+                data={
+                    "query": q,
+                    "type": type,
+                    "mode": mode,
+                    "elapsed_ms": timer.elapsed_ms
+                }
+            )
+            raise HTTPException(
+                status_code=500,
+                detail="An error occurred while performing the search"
             )
 
 

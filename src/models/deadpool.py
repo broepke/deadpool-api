@@ -3,6 +3,35 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
+class SearchResultAttributes(BaseModel):
+    """
+    Pydantic model for search result attributes.
+    """
+    name: str
+    status: str
+    metadata: Optional[Dict[str, Any]] = None
+
+
+class SearchResult(BaseModel):
+    """
+    Pydantic model for individual search result.
+    """
+    id: str
+    type: str
+    attributes: SearchResultAttributes
+    score: float
+
+
+class SearchResponse(BaseModel):
+    """
+    Pydantic model for search API response with pagination.
+    """
+    message: str
+    data: List[SearchResult]
+    metadata: Dict[str, Any]
+
+
+# Rest of the existing models...
 class PickDetail(BaseModel):
     """
     Pydantic model for detailed pick information including player and picked person details.
@@ -30,6 +59,7 @@ class PaginatedPickDetailResponse(BaseModel):
     page: int
     page_size: int
     total_pages: int
+
 
 class PickDetailResponse(BaseModel):
     """
@@ -198,6 +228,7 @@ class PaginatedPersonResponse(BaseModel):
     page_size: int
     total_pages: int
 
+
 class PersonResponse(BaseModel):
     """
     Pydantic model for API responses containing Person data.
@@ -232,12 +263,14 @@ class DraftRequest(BaseModel):
     name: str
     player_id: str
 
+
 class DraftResponse(BaseModel):
     """
     Pydantic model for draft response data.
     """
     message: str
     data: Dict[str, Any]
+
 
 class PicksCountEntry(BaseModel):
     """
@@ -266,6 +299,7 @@ class PhoneVerificationRequest(BaseModel):
     """
     phone_number: str
 
+
 class PhoneVerificationResponse(BaseModel):
     """
     Pydantic model for phone verification response.
@@ -273,11 +307,13 @@ class PhoneVerificationResponse(BaseModel):
     message: str
     data: Dict[str, Any]
 
+
 class CodeVerificationRequest(BaseModel):
     """
     Pydantic model for verifying a phone code.
     """
     code: str
+
 
 class CodeVerificationResponse(BaseModel):
     """
@@ -286,11 +322,13 @@ class CodeVerificationResponse(BaseModel):
     message: str
     data: Dict[str, Any]
 
+
 class ProfileUpdateResponse(BaseModel):
     """
     Pydantic model for profile update response.
     """
     message: str
+
 
 class LeaderboardResponse(BaseModel):
     """

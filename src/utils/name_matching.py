@@ -1,7 +1,7 @@
 """
 Utility module for robust name matching with normalization and fuzzy matching capabilities.
 """
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from rapidfuzz.fuzz import ratio
 
 # Configuration for name matching
@@ -69,6 +69,10 @@ def calculate_similarity(name1: str, name2: str) -> float:
         return 0.0
         
     return ratio(name1, name2) / 100.0  # Convert rapidfuzz's 0-100 score to 0-1
+
+def get_player_name(player: Dict[str, Any]) -> str:
+    """Helper function to get player's full name from FirstName and LastName."""
+    return f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip()
 
 def names_match(name1: str, name2: str, threshold: Optional[float] = None) -> Dict:
     """
