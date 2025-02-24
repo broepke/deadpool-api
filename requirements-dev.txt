@@ -7,3 +7,4 @@ mangum
 uvicorn
 rapidfuzz
 pytest
+pytest-asyncio

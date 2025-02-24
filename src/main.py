@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from src.routers import deadpool
+from src.routers import deadpool, reporting
 from src.models.deadpool import RoutesResponse
 from src.middleware.logging import LoggingMiddleware
 from src.utils.logging import cwlogger
@@ -54,6 +54,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(deadpool.router)
+app.include_router(reporting.router)  # Add reporting router
 
 @app.get("/", response_model=RoutesResponse)
 async def get_routes():
