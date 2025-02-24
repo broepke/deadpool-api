@@ -45,5 +45,6 @@ class Cache:
         self.set(key, value)
         return value
 
-# Global cache instance
-reporting_cache = Cache()
+# Global cache instances
+reporting_cache = Cache()  # Default 5 minute TTL
+next_drafter_cache = Cache(ttl=30)  # 30 second TTL for next drafter lookups

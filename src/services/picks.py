@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 from ..models.deadpool import PickDetail, PicksCountEntry
 from ..utils.dynamodb import DynamoDBClient
-from ..utils.caching import reporting_cache
+from ..utils.caching import reporting_cache, next_drafter_cache
 
 
 class PicksService:
@@ -221,11 +221,10 @@ class PicksService:
         target_year = datetime.now().year
         cache_key = f"next_drafter_{target_year}"
 
-        # Short TTL (30 seconds) since this changes frequently
-        return await reporting_cache.get_or_compute(
+        # Using next_drafter_cache which has a 30 second TTL
+        return await next_drafter_cache.get_or_compute(
             cache_key,
-            lambda: self._compute_next_drafter(target_year),
-            ttl=30
+            lambda: self._compute_next_drafter(target_year)
         )
 
     async def _compute_next_drafter(self, target_year: int) -> Dict[str, Any]:
@@ -323,3 +322,5 @@ class PicksService:
         ]
         for key in cache_keys:
             reporting_cache.delete(key)
+            if key.startswith('next_drafter_'):
+                next_drafter_cache.delete(key)
