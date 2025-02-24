@@ -55,9 +55,7 @@ class DynamoDBClient:
             }
 
     async def get_players(self, year: Optional[int] = None) -> List[Dict[str, Any]]:
-        """
-        Get players from DynamoDB, optionally filtered by year.
-        """
+        """Get players from DynamoDB, optionally filtered by year."""
         # Default to current year if not specified
         target_year = year if year else datetime.now().year
 
@@ -109,40 +107,66 @@ class DynamoDBClient:
                         player_info.append((player_id, draft_order))
 
                 if not player_info:
-                    cwlogger.warning(
-                        "DB_QUERY",
-                        "No valid player info extracted from draft orders",
-                        data={
-                            "table": self.table_name,
-                            "year": target_year,
-                            "draft_orders_count": len(draft_orders)
-                        }
-                    )
                     return []
 
-                # Get player details
+                # Try batch get first, fall back to individual gets if not permitted
+                all_players = {}
+                try:
+                    # Get all player details in one batch operation
+                    player_keys = [
+                        {"PK": f"PLAYER#{player_id}", "SK": "DETAILS"}
+                        for player_id, _ in player_info
+                    ]
+                    
+                    # Split into chunks of 25 (DynamoDB batch limit)
+                    chunk_size = 25
+                    player_chunks = [
+                        player_keys[i:i + chunk_size]
+                        for i in range(0, len(player_keys), chunk_size)
+                    ]
+
+                    # Batch get all players
+                    for chunk in player_chunks:
+                        response = self.dynamodb.batch_get_item(
+                            RequestItems={
+                                self.table_name: {
+                                    'Keys': chunk,
+                                    'ConsistentRead': True
+                                }
+                            }
+                        )
+                        
+                        for item in response['Responses'][self.table_name]:
+                            player_id = item['PK'].split('#')[1]
+                            all_players[player_id] = item
+                            
+                except Exception as e:
+                    cwlogger.warning(
+                        "DB_BATCH_GET_FAILED",
+                        "Falling back to individual GetItem operations",
+                        error=e
+                    )
+                    # Fall back to individual GetItem operations
+                    for player_id, _ in player_info:
+                        try:
+                            player_response = self.table.get_item(
+                                Key={"PK": f"PLAYER#{player_id}", "SK": "DETAILS"}
+                            )
+                            player = player_response.get("Item")
+                            if player:
+                                all_players[player_id] = player
+                        except Exception as inner_e:
+                            cwlogger.error(
+                                "DB_GET_ERROR",
+                                f"Error getting player {player_id}",
+                                error=inner_e
+                            )
+
+                # Transform players with draft order
                 transformed_players = []
                 for player_id, draft_order in player_info:
-                    try:
-                        # Get player details
-                        player_response = self.table.get_item(
-                            Key={"PK": f"PLAYER#{player_id}", "SK": "DETAILS"}
-                        )
-                        player = player_response.get("Item")
-
-                        if not player:
-                            cwlogger.warning(
-                                "DB_GET",
-                                f"No details found for player {player_id}",
-                                data={
-                                    "table": self.table_name,
-                                    "player_id": player_id,
-                                    "year": target_year
-                                }
-                            )
-                            continue
-
-                        # Transform player data
+                    player = all_players.get(player_id)
+                    if player:
                         transformed = {
                             "id": player_id,
                             "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
@@ -155,32 +179,9 @@ class DynamoDBClient:
                             "verification_timestamp": player.get("VerificationTimestamp"),
                         }
                         transformed_players.append(transformed)
-                    except Exception as e:
-                        cwlogger.error(
-                            "DB_ERROR",
-                            f"Error processing player {player_id}",
-                            error=e,
-                            data={
-                                "table": self.table_name,
-                                "player_id": player_id,
-                                "year": target_year
-                            }
-                        )
 
                 # Sort by draft order
                 transformed_players.sort(key=lambda x: x["draft_order"])
-                
-                cwlogger.info(
-                    "DB_OPERATION",
-                    f"Successfully retrieved {len(transformed_players)} players for year {target_year}",
-                    data={
-                        "table": self.table_name,
-                        "year": target_year,
-                        "player_count": len(transformed_players),
-                        "elapsed_ms": timer.elapsed_ms
-                    }
-                )
-                
                 return transformed_players
 
             except Exception as e:
@@ -195,6 +196,119 @@ class DynamoDBClient:
                     }
                 )
                 return []
+
+    async def batch_get_player_picks(
+        self, player_ids: List[str], year: Optional[int] = None
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Get picks for multiple players in batch."""
+        try:
+            result = {}
+            # Group by year if specified
+            year_prefix = f"PICK#{year}#" if year else "PICK#"
+            
+            # Query picks for each player (DynamoDB doesn't support batch query)
+            for player_id in player_ids:
+                params = {
+                    "KeyConditionExpression": "PK = :pk AND begins_with(SK, :sk_prefix)",
+                    "ExpressionAttributeValues": {
+                        ":pk": f"PLAYER#{player_id}",
+                        ":sk_prefix": year_prefix
+                    }
+                }
+                
+                response = self.table.query(**params)
+                picks = []
+                
+                for item in response.get("Items", []):
+                    # SK format: PICK#year#person_id
+                    parts = item["SK"].split("#")
+                    if len(parts) >= 3:
+                        picks.append({
+                            "person_id": parts[2],
+                            "year": int(parts[1]),
+                            "timestamp": item.get("Timestamp"),
+                        })
+                
+                # Sort by timestamp descending
+                picks.sort(key=lambda x: x["timestamp"], reverse=True)
+                result[player_id] = picks
+            
+            return result
+            
+        except Exception as e:
+            cwlogger.error(
+                "DB_ERROR",
+                "Error batch getting player picks",
+                error=e,
+                data={"player_count": len(player_ids)}
+            )
+            return {}
+
+    async def batch_get_people(self, person_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get multiple people in batch, falling back to individual gets if batch fails."""
+        result = {}
+        try:
+            # Create chunks of 25 keys (DynamoDB batch limit)
+            chunks = [
+                person_ids[i:i + 25] for i in range(0, len(person_ids), 25)
+            ]
+            
+            # Process each chunk
+            for chunk in chunks:
+                try:
+                    keys = [
+                        {"PK": f"PERSON#{pid}", "SK": "DETAILS"}
+                        for pid in chunk
+                    ]
+                    
+                    response = self.dynamodb.batch_get_item(
+                        RequestItems={
+                            self.table_name: {
+                                'Keys': keys,
+                                'ConsistentRead': True
+                            }
+                        }
+                    )
+                    
+                    # Transform and store results
+                    for item in response['Responses'][self.table_name]:
+                        person = self._transform_person(item)
+                        result[person["id"]] = person
+                        
+                except Exception as batch_error:
+                    cwlogger.warning(
+                        "DB_BATCH_GET_FAILED",
+                        "Falling back to individual GetItem operations for people",
+                        error=batch_error,
+                        data={"chunk_size": len(chunk)}
+                    )
+                    # Fall back to individual gets for this chunk
+                    for person_id in chunk:
+                        try:
+                            response = self.table.get_item(
+                                Key={"PK": f"PERSON#{person_id}", "SK": "DETAILS"}
+                            )
+                            item = response.get("Item")
+                            if item:
+                                person = self._transform_person(item)
+                                result[person["id"]] = person
+                        except Exception as get_error:
+                            cwlogger.error(
+                                "DB_GET_ERROR",
+                                f"Error getting person {person_id}",
+                                error=get_error
+                            )
+            
+            return result
+            
+        except Exception as e:
+            cwlogger.error(
+                "DB_ERROR",
+                "Error getting people",
+                error=e,
+                data={"person_count": len(person_ids)}
+            )
+            return result  # Return any successfully retrieved people
 
 
     async def get_people(

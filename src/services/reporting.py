@@ -1,7 +1,9 @@
+"""Service class for handling reporting and analytics functionality."""
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Any
 from collections import defaultdict
 from ..utils.dynamodb import DynamoDBClient
+from ..utils.caching import reporting_cache
 
 class ReportingService:
     """Service class for handling reporting and analytics functionality."""
@@ -19,51 +21,59 @@ class ReportingService:
         ]
 
     async def get_overview_stats(self, year: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Get high-level statistics about the current state of the game.
-        
-        Args:
-            year: Optional year to filter statistics (defaults to current year)
-            
-        Returns:
-            Dictionary containing overview statistics
-        """
+        """Get high-level statistics about the current state of the game."""
+        target_year = year if year else datetime.now().year
+        cache_key = f"overview_stats_{target_year}"
+
+        return await reporting_cache.get_or_compute(
+            cache_key,
+            lambda: self._compute_overview_stats(target_year)
+        )
+
+    async def _compute_overview_stats(self, target_year: int) -> Dict[str, Any]:
+        """Compute overview statistics with optimized batch operations."""
         try:
-            target_year = year if year else datetime.now().year
-            
             # Get all players for the year
             players = await self.db.get_players(target_year)
-            
+            if not players:
+                return self._empty_overview_stats(target_year)
+
+            # Batch get all picks for all players
+            player_ids = [p["id"] for p in players]
+            all_picks = await self.db.batch_get_player_picks(player_ids, target_year)
+
+            # Collect all person IDs from picks
+            person_ids = set()
+            for picks in all_picks.values():
+                person_ids.update(pick["person_id"] for pick in picks)
+
+            # Batch get all people
+            people = await self.db.batch_get_people(list(person_ids))
+
             # Initialize age range statistics
             age_ranges = {
-                "0-29": {"count": 0, "deceased": 0},
-                "30-39": {"count": 0, "deceased": 0},
-                "40-49": {"count": 0, "deceased": 0},
-                "50-59": {"count": 0, "deceased": 0},
-                "60-69": {"count": 0, "deceased": 0},
-                "70-79": {"count": 0, "deceased": 0},
-                "80+": {"count": 0, "deceased": 0},
+                range_info["range"]: {"count": 0, "deceased": 0}
+                for range_info in self.age_ranges
             }
-            
+
             total_picks = 0
             total_deceased = 0
             total_age = 0
-            
-            # Analyze all picks
-            for player in players:
-                picks = await self.db.get_player_picks(player["id"], target_year)
-                for pick in picks:
-                    person = await self.db.get_person(pick["person_id"])
+
+            # Process all picks with optimized data access
+            for player_picks in all_picks.values():
+                for pick in player_picks:
+                    person = people.get(pick["person_id"])
                     if person:
                         total_picks += 1
                         age = person.get("metadata", {}).get("Age", 0)
                         total_age += age
-                        
+
                         # Categorize into age ranges
                         age_range = self._get_age_range(age)
                         if age_range:
                             age_ranges[age_range]["count"] += 1
-                            
+
                             # Check if deceased in target year
                             death_date = person.get("metadata", {}).get("DeathDate")
                             if death_date:
@@ -71,20 +81,24 @@ class ReportingService:
                                 if death_year == target_year:
                                     total_deceased += 1
                                     age_ranges[age_range]["deceased"] += 1
-            
-            # Calculate most popular and most successful age ranges
-            most_popular_range = max(age_ranges.items(), key=lambda x: x[1]["count"])[0]
-            
-            # Calculate success rates for each range
-            success_rates = {}
-            for range_name, stats in age_ranges.items():
-                if stats["count"] > 0:
-                    success_rates[range_name] = stats["deceased"] / stats["count"]
-                else:
-                    success_rates[range_name] = 0
-            
-            most_successful_range = max(success_rates.items(), key=lambda x: x[1])[0]
-            
+
+            # Calculate most popular and successful ranges
+            most_popular_range = max(
+                age_ranges.items(),
+                key=lambda x: x[1]["count"]
+            )[0]
+
+            success_rates = {
+                range_name: stats["deceased"] / stats["count"]
+                if stats["count"] > 0 else 0
+                for range_name, stats in age_ranges.items()
+            }
+
+            most_successful_range = max(
+                success_rates.items(),
+                key=lambda x: x[1]
+            )[0]
+
             return {
                 "total_players": len(players),
                 "total_picks": total_picks,
@@ -97,109 +111,120 @@ class ReportingService:
                 "updated_at": datetime.utcnow().isoformat(),
                 "year": target_year
             }
-            
+
         except Exception as e:
             raise Exception(f"Error generating overview stats: {str(e)}")
+
+    def _empty_overview_stats(self, year: int) -> Dict[str, Any]:
+        """Return empty overview statistics structure."""
+        return {
+            "total_players": 0,
+            "total_picks": 0,
+            "total_deceased": 0,
+            "average_pick_age": 0,
+            "most_popular_age_range": None,
+            "most_successful_age_range": None,
+            "pick_success_rate": 0,
+            "age_distribution": {
+                range_info["range"]: {"count": 0, "deceased": 0}
+                for range_info in self.age_ranges
+            },
+            "updated_at": datetime.utcnow().isoformat(),
+            "year": year
+        }
 
     async def get_time_analytics(
         self,
         year: Optional[int] = None,
         period: str = "monthly"
     ) -> Dict[str, Any]:
-        """
-        Get time-based analytics about picks and deaths.
-        
-        Args:
-            year: Optional year to filter statistics (defaults to current year)
-            period: Analysis period ('daily', 'weekly', 'monthly')
-            
-        Returns:
-            Dictionary containing time-based analytics
-        """
+        """Get time-based analytics about picks and deaths."""
+        target_year = year if year else datetime.now().year
+        cache_key = f"time_analytics_{target_year}_{period}"
+
+        return await reporting_cache.get_or_compute(
+            cache_key,
+            lambda: self._compute_time_analytics(target_year, period)
+        )
+
+    async def _compute_time_analytics(
+        self,
+        target_year: int,
+        period: str
+    ) -> Dict[str, Any]:
+        """Compute time-based analytics with optimized batch operations."""
         try:
-            target_year = year if year else datetime.now().year
-            
-            # Initialize data structures for time-based analysis
+            # Get all players
+            players = await self.db.get_players(target_year)
+            if not players:
+                return {"data": [], "metadata": self._empty_time_metadata(target_year, period)}
+
+            # Batch get all picks
+            player_ids = [p["id"] for p in players]
+            all_picks = await self.db.batch_get_player_picks(player_ids, target_year)
+
+            # Collect all person IDs
+            person_ids = set()
+            for picks in all_picks.values():
+                person_ids.update(pick["person_id"] for pick in picks)
+
+            # Batch get all people
+            people = await self.db.batch_get_people(list(person_ids))
+
+            # Initialize time-based analysis
             time_data = defaultdict(lambda: {
                 "pick_count": 0,
                 "death_count": 0,
                 "total_age": 0,
-                "picks": []  # Store picks for calculating averages
+                "picks": []
             })
-            
-            # First, collect all deaths in the target year
-            all_people = await self.db.get_people()
-            for person in all_people:
-                death_date = person.get("metadata", {}).get("DeathDate")
-                if death_date:
-                    death_time = datetime.strptime(death_date, "%Y-%m-%d")
-                    if death_time.year == target_year:
-                        death_period_key = self._get_period_key(death_time, period)
-                        # Initialize period data if it doesn't exist
-                        if death_period_key not in time_data:
-                            time_data[death_period_key] = {
-                                "pick_count": 0,
-                                "death_count": 0,
-                                "total_age": 0,
-                                "picks": []
-                            }
-                        time_data[death_period_key]["death_count"] += 1
-            
-            # Get all players for the year
-            players = await self.db.get_players(target_year)
-            
-            # Then collect all picks and analyze their timing
-            for player in players:
-                picks = await self.db.get_player_picks(player["id"], target_year)
+
+            # Process all picks and deaths
+            for picks in all_picks.values():
                 for pick in picks:
-                    if not pick.get("timestamp"):
+                    person = people.get(pick["person_id"])
+                    if not person:
                         continue
-                        
+
                     pick_time = datetime.fromisoformat(pick["timestamp"])
                     period_key = self._get_period_key(pick_time, period)
-                    
-                    person = await self.db.get_person(pick["person_id"])
-                    if person:
-                        metadata = person.get("metadata", {})
-                        age = metadata.get("Age", 0)
-                        
-                        # Initialize period data if it doesn't exist
-                        if period_key not in time_data:
-                            time_data[period_key] = {
-                                "pick_count": 0,
-                                "death_count": 0,
-                                "total_age": 0,
-                                "picks": []
-                            }
-                        
-                        # Add pick data
-                        time_data[period_key]["pick_count"] += 1
-                        time_data[period_key]["total_age"] += age
-                        time_data[period_key]["picks"].append({
-                            "age": age
-                        })
-            
-            # Convert defaultdict to list of analytics entries
+                    age = person.get("metadata", {}).get("Age", 0)
+
+                    time_data[period_key]["pick_count"] += 1
+                    time_data[period_key]["total_age"] += age
+                    time_data[period_key]["picks"].append({"age": age})
+
+                    # Check for death in target year
+                    death_date = person.get("metadata", {}).get("DeathDate")
+                    if death_date:
+                        death_time = datetime.strptime(death_date, "%Y-%m-%d")
+                        if death_time.year == target_year:
+                            death_period_key = self._get_period_key(death_time, period)
+                            time_data[death_period_key]["death_count"] += 1
+
+            # Convert to analytics entries
             analytics_data = []
+            total_picks = 0
             total_deaths = 0
-            
+
             for period_key, data in sorted(time_data.items()):
                 picks_count = data["pick_count"]
                 death_count = data["death_count"]
+                total_picks += picks_count
                 total_deaths += death_count
-                
+
                 analytics_data.append({
                     "period": period_key,
                     "pick_count": picks_count,
                     "death_count": death_count,
                     "success_rate": death_count / picks_count if picks_count > 0 else 0,
                     "average_age": data["total_age"] / picks_count if picks_count > 0 else 0,
-                    "timestamp": datetime.strptime(period_key, "%Y-%m" if period == "monthly" else "%Y-%m-%d")
+                    "timestamp": datetime.strptime(
+                        period_key,
+                        "%Y-%m" if period == "monthly" else "%Y-%m-%d"
+                    )
                 })
-            
-            # Calculate metadata
-            total_picks = sum(data["pick_count"] for data in analytics_data)
-            
+
             metadata = {
                 "total_periods": len(analytics_data),
                 "total_picks": total_picks,
@@ -209,31 +234,60 @@ class ReportingService:
                 "period_type": period,
                 "year": target_year
             }
-            
+
             return {
                 "data": analytics_data,
                 "metadata": metadata
             }
-            
+
         except Exception as e:
             raise Exception(f"Error generating time analytics: {str(e)}")
+
+    def _empty_time_metadata(self, year: int, period: str) -> Dict[str, Any]:
+        """Return empty time analytics metadata structure."""
+        return {
+            "total_periods": 0,
+            "total_picks": 0,
+            "total_deaths": 0,
+            "overall_success_rate": 0,
+            "average_picks_per_period": 0,
+            "period_type": period,
+            "year": year
+        }
 
     async def get_demographic_analysis(
         self,
         year: Optional[int] = None
     ) -> Dict[str, Any]:
-        """
-        Get detailed demographic analysis of picks.
-        
-        Args:
-            year: Optional year to filter statistics (defaults to current year)
-            
-        Returns:
-            Dictionary containing demographic analysis
-        """
+        """Get demographic analysis of picks."""
+        target_year = year if year else datetime.now().year
+        cache_key = f"demographic_analysis_{target_year}"
+
+        return await reporting_cache.get_or_compute(
+            cache_key,
+            lambda: self._compute_demographic_analysis(target_year)
+        )
+
+    async def _compute_demographic_analysis(self, target_year: int) -> Dict[str, Any]:
+        """Compute demographic analysis with optimized batch operations."""
         try:
-            target_year = year if year else datetime.now().year
-            
+            # Get all players
+            players = await self.db.get_players(target_year)
+            if not players:
+                return {"data": [], "metadata": self._empty_demographic_metadata(target_year)}
+
+            # Batch get all picks
+            player_ids = [p["id"] for p in players]
+            all_picks = await self.db.batch_get_player_picks(player_ids, target_year)
+
+            # Collect all person IDs
+            person_ids = set()
+            for picks in all_picks.values():
+                person_ids.update(pick["person_id"] for pick in picks)
+
+            # Batch get all people
+            people = await self.db.batch_get_people(list(person_ids))
+
             # Initialize age group data
             age_groups = []
             for range_info in self.age_ranges:
@@ -241,59 +295,59 @@ class ReportingService:
                     "range": range_info["range"],
                     "pick_count": 0,
                     "death_count": 0,
-                    "total_score": 0,
-                    "picks": []  # Store picks for calculating averages
+                    "total_score": 0
                 })
-            
-            # Get all players for the year
-            players = await self.db.get_players(target_year)
-            
-            # Analyze all picks
+
             total_picks = 0
             total_deaths = 0
-            
-            for player in players:
-                picks = await self.db.get_player_picks(player["id"], target_year)
+
+            # Process all picks
+            for picks in all_picks.values():
                 for pick in picks:
-                    person = await self.db.get_person(pick["person_id"])
-                    if person:
-                        total_picks += 1
-                        age = person.get("metadata", {}).get("Age", 0)
-                        
-                        # Find appropriate age group
-                        for group in age_groups:
-                            range_info = next(r for r in self.age_ranges if r["range"] == group["range"])
-                            if range_info["min"] <= age <= range_info["max"]:
-                                group["pick_count"] += 1
-                                group["picks"].append({
-                                    "age": age,
-                                    "person_id": person["id"],
-                                    "person_name": person["name"]
-                                })
-                                
-                                # Check if deceased in target year
-                                death_date = person.get("metadata", {}).get("DeathDate")
-                                if death_date:
-                                    death_year = datetime.strptime(death_date, "%Y-%m-%d").year
-                                    if death_year == target_year:
-                                        total_deaths += 1
-                                        group["death_count"] += 1
-                                        # Calculate score: 50 + (100 - age)
-                                        score = 50 + (100 - age)
-                                        group["total_score"] += score
-                                break
-            
+                    person = people.get(pick["person_id"])
+                    if not person:
+                        continue
+
+                    total_picks += 1
+                    age = person.get("metadata", {}).get("Age", 0)
+
+                    # Find appropriate age group
+                    for group in age_groups:
+                        range_info = next(
+                            r for r in self.age_ranges
+                            if r["range"] == group["range"]
+                        )
+                        if range_info["min"] <= age <= range_info["max"]:
+                            group["pick_count"] += 1
+
+                            # Check if deceased in target year
+                            death_date = person.get("metadata", {}).get("DeathDate")
+                            if death_date:
+                                death_year = datetime.strptime(death_date, "%Y-%m-%d").year
+                                if death_year == target_year:
+                                    total_deaths += 1
+                                    group["death_count"] += 1
+                                    # Calculate score: 50 + (100 - age)
+                                    score = 50 + (100 - age)
+                                    group["total_score"] += score
+                            break
+
             # Calculate success rates and average scores
             for group in age_groups:
-                group["success_rate"] = group["death_count"] / group["pick_count"] if group["pick_count"] > 0 else 0
-                group["average_score"] = group["total_score"] / group["death_count"] if group["death_count"] > 0 else 0
-                del group["picks"]  # Remove detailed pick data from response
+                group["success_rate"] = (
+                    group["death_count"] / group["pick_count"]
+                    if group["pick_count"] > 0 else 0
+                )
+                group["average_score"] = (
+                    group["total_score"] / group["death_count"]
+                    if group["death_count"] > 0 else 0
+                )
                 del group["total_score"]  # Remove intermediate calculation
-            
+
             # Find most popular and successful ranges
             most_popular = max(age_groups, key=lambda x: x["pick_count"])
             most_successful = max(age_groups, key=lambda x: x["success_rate"])
-            
+
             metadata = {
                 "total_picks": total_picks,
                 "total_deaths": total_deaths,
@@ -303,33 +357,48 @@ class ReportingService:
                 "year": target_year,
                 "updated_at": datetime.utcnow().isoformat()
             }
-            
+
             return {
                 "data": age_groups,
                 "metadata": metadata
             }
-            
+
         except Exception as e:
             raise Exception(f"Error generating demographic analysis: {str(e)}")
+
+    def _empty_demographic_metadata(self, year: int) -> Dict[str, Any]:
+        """Return empty demographic analysis metadata structure."""
+        return {
+            "total_picks": 0,
+            "total_deaths": 0,
+            "overall_success_rate": 0,
+            "most_popular_range": None,
+            "most_successful_range": None,
+            "year": year,
+            "updated_at": datetime.utcnow().isoformat()
+        }
 
     async def get_player_analytics(
         self,
         player_id: Optional[str] = None,
         year: Optional[int] = None
     ) -> Dict[str, Any]:
-        """
-        Get detailed analytics for player(s).
-        
-        Args:
-            player_id: Optional player ID to filter analytics
-            year: Optional year to filter statistics (defaults to current year)
-            
-        Returns:
-            Dictionary containing player analytics
-        """
+        """Get detailed analytics for player(s)."""
+        target_year = year if year else datetime.now().year
+        cache_key = f"player_analytics_{player_id or 'all'}_{target_year}"
+
+        return await reporting_cache.get_or_compute(
+            cache_key,
+            lambda: self._compute_player_analytics(player_id, target_year)
+        )
+
+    async def _compute_player_analytics(
+        self,
+        player_id: Optional[str],
+        target_year: int
+    ) -> Dict[str, Any]:
+        """Compute player analytics with optimized batch operations."""
         try:
-            target_year = year if year else datetime.now().year
-            
             # Get players to analyze
             players = []
             if player_id:
@@ -338,25 +407,34 @@ class ReportingService:
                     players = [player]
             else:
                 players = await self.db.get_players(target_year)
-            
+
             if not players:
                 return {
                     "data": [],
-                    "metadata": {
-                        "year": target_year,
-                        "total_players": 0,
-                        "updated_at": datetime.utcnow().isoformat()
-                    }
+                    "metadata": self._empty_player_analytics_metadata(target_year)
                 }
-            
+
+            # Batch get all picks
+            player_ids = [p["id"] for p in players]
+            all_picks = await self.db.batch_get_player_picks(player_ids, target_year)
+
+            # Collect all person IDs
+            person_ids = set()
+            for picks in all_picks.values():
+                person_ids.update(pick["person_id"] for pick in picks)
+
+            # Batch get all people
+            people = await self.db.batch_get_people(list(person_ids))
+
             player_analytics = []
             total_picks = 0
             total_deaths = 0
-            
+
             for player in players:
-                # Get all picks for this player
-                picks = await self.db.get_player_picks(player["id"], target_year)
-                
+                picks = all_picks.get(player["id"], [])
+                if not picks:
+                    continue
+
                 # Initialize player statistics
                 age_preferences = defaultdict(int)
                 pick_timing = {
@@ -368,66 +446,67 @@ class ReportingService:
                 score_progression = []
                 current_score = 0
                 deceased_picks = 0
-                
+
                 # Analyze each pick
                 for pick in picks:
                     total_picks += 1
-                    
-                    # Get person details
-                    person = await self.db.get_person(pick["person_id"])
-                    if person:
-                        # Age analysis
-                        age = person.get("metadata", {}).get("Age", 0)
-                        age_range = self._get_age_range(age)
-                        if age_range:
-                            age_preferences[age_range] += 1
-                        
-                        # Pick timing analysis
-                        if pick.get("timestamp"):
-                            pick_time = datetime.fromisoformat(pick["timestamp"])
-                            hour = pick_time.hour
-                            if 6 <= hour < 12:
-                                pick_timing["morning"] += 1
-                            elif 12 <= hour < 18:
-                                pick_timing["afternoon"] += 1
-                            elif 18 <= hour < 24:
-                                pick_timing["evening"] += 1
-                            else:
-                                pick_timing["night"] += 1
-                        
-                        # Death analysis
-                        death_date = person.get("metadata", {}).get("DeathDate")
-                        if death_date:
-                            death_year = datetime.strptime(death_date, "%Y-%m-%d").year
-                            if death_year == target_year:
-                                deceased_picks += 1
-                                total_deaths += 1
-                                # Calculate score: 50 + (100 - age)
-                                score = 50 + (100 - age)
-                                current_score += score
-                                
-                        # Add current score to progression
-                        score_progression.append(current_score)
-                
-                # Calculate preferred age ranges (sorted by count)
+                    person = people.get(pick["person_id"])
+                    if not person:
+                        continue
+
+                    # Age analysis
+                    age = person.get("metadata", {}).get("Age", 0)
+                    age_range = self._get_age_range(age)
+                    if age_range:
+                        age_preferences[age_range] += 1
+
+                    # Pick timing analysis
+                    if pick.get("timestamp"):
+                        pick_time = datetime.fromisoformat(pick["timestamp"])
+                        hour = pick_time.hour
+                        if 6 <= hour < 12:
+                            pick_timing["morning"] += 1
+                        elif 12 <= hour < 18:
+                            pick_timing["afternoon"] += 1
+                        elif 18 <= hour < 24:
+                            pick_timing["evening"] += 1
+                        else:
+                            pick_timing["night"] += 1
+
+                    # Death analysis
+                    death_date = person.get("metadata", {}).get("DeathDate")
+                    if death_date:
+                        death_year = datetime.strptime(death_date, "%Y-%m-%d").year
+                        if death_year == target_year:
+                            deceased_picks += 1
+                            total_deaths += 1
+                            # Calculate score: 50 + (100 - age)
+                            score = 50 + (100 - age)
+                            current_score += score
+
+                    # Add current score to progression
+                    score_progression.append(current_score)
+
+                # Calculate preferred age ranges
                 preferred_ranges = sorted(
                     [(range_name, count) for range_name, count in age_preferences.items()],
                     key=lambda x: x[1],
                     reverse=True
                 )
                 preferred_age_ranges = [range_name for range_name, _ in preferred_ranges]
-                
+
                 # Determine pick timing pattern
                 timing_pattern = "random"
-                if pick_timing["night"] > 0.8 * len(picks):
+                total_picks_count = len(picks)
+                if pick_timing["night"] > 0.8 * total_picks_count:
                     timing_pattern = "night owl"
-                elif pick_timing["morning"] > 0.8 * len(picks):
+                elif pick_timing["morning"] > 0.8 * total_picks_count:
                     timing_pattern = "early bird"
-                elif pick_timing["afternoon"] > 0.8 * len(picks):
+                elif pick_timing["afternoon"] > 0.8 * total_picks_count:
                     timing_pattern = "afternoon regular"
-                elif pick_timing["evening"] > 0.8 * len(picks):
+                elif pick_timing["evening"] > 0.8 * total_picks_count:
                     timing_pattern = "evening regular"
-                
+
                 player_stats = {
                     "player_id": player["id"],
                     "player_name": player["name"],
@@ -437,15 +516,15 @@ class ReportingService:
                     "success_rate": deceased_picks / len(picks) if picks else 0,
                     "score_progression": score_progression
                 }
-                
+
                 player_analytics.append(player_stats)
-            
-            # Sort by final score (last value in score_progression)
+
+            # Sort by final score
             player_analytics.sort(
                 key=lambda x: x["score_progression"][-1] if x["score_progression"] else 0,
                 reverse=True
             )
-            
+
             metadata = {
                 "year": target_year,
                 "total_players": len(players),
@@ -454,14 +533,25 @@ class ReportingService:
                 "overall_success_rate": total_deaths / total_picks if total_picks > 0 else 0,
                 "updated_at": datetime.utcnow().isoformat()
             }
-            
+
             return {
                 "data": player_analytics,
                 "metadata": metadata
             }
-            
+
         except Exception as e:
             raise Exception(f"Error generating player analytics: {str(e)}")
+
+    def _empty_player_analytics_metadata(self, year: int) -> Dict[str, Any]:
+        """Return empty player analytics metadata structure."""
+        return {
+            "year": year,
+            "total_players": 0,
+            "total_picks": 0,
+            "total_deaths": 0,
+            "overall_success_rate": 0,
+            "updated_at": datetime.utcnow().isoformat()
+        }
 
     def _get_age_range(self, age: int) -> Optional[str]:
         """Helper method to categorize age into ranges."""
@@ -469,7 +559,7 @@ class ReportingService:
             if range_info["min"] <= age <= range_info["max"]:
                 return range_info["range"]
         return None
-            
+
     def _get_period_key(self, date: datetime, period: str) -> str:
         """Helper method to generate period key based on period type."""
         if period == "monthly":

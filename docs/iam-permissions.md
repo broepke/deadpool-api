@@ -17,7 +17,8 @@ The Lambda function requires the following IAM permissions to operate correctly:
                 "dynamodb:UpdateItem",
                 "dynamodb:DeleteItem",
                 "dynamodb:Query",
-                "dynamodb:Scan"
+                "dynamodb:Scan",
+                "dynamodb:BatchGetItem"
             ],
             "Resource": "arn:aws:dynamodb:*:*:table/Deadpool"
         }
@@ -60,11 +61,14 @@ Note: For SMS messaging, we need two separate statements:
 
 1. Go to the AWS IAM Console
 2. Find the role "Deadpool-app-role-3xfmpboz"
-3. Add a new inline policy or attach the AWS managed policy "AWSLambdaSNSPublishPolicyExecute"
-4. If creating an inline policy, use the SNS permissions JSON above
+3. Add or update the DynamoDB inline policy with the permissions JSON above
+4. For SNS permissions, either:
+   - Add a new inline policy, or
+   - Attach the AWS managed policy "AWSLambdaSNSPublishPolicyExecute"
 5. Save the changes
 
 ## Notes
 - The `sns:Publish` permission with Resource "*" is required for sending SMS messages directly to phone numbers
 - The specific Topic ARN permissions are needed for managing notification subscriptions
 - Consider using AWS Organizations SCPs or resource-based policies for additional security controls
+- The `dynamodb:BatchGetItem` permission is required for optimized batch operations

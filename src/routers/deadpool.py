@@ -25,12 +25,12 @@ from ..models.deadpool import (
     DraftRequest,
     DraftResponse,
     PicksCountResponse,
-    PicksCountEntry,
     PlayerProfileUpdate,
     ProfileUpdateResponse,
     SearchResponse,  # Add new search response model
 )
 from ..services.search import SearchService  # Add search service
+from ..services.picks import PicksService  # Add picks service
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
 from ..utils.name_matching import names_match, get_player_name
@@ -1119,7 +1119,12 @@ async def update_player_pick(
                 )
                 raise HTTPException(status_code=404, detail="Person not found")
 
+            # Update the pick
             updated_pick = await db.update_player_pick(player_id, updates.dict())
+
+            # Invalidate picks cache for the affected year
+            picks_service = PicksService(db)
+            await picks_service.invalidate_picks_cache(updates.year)
 
             cwlogger.info(
                 "PLAYER_PICK_COMPLETE",
@@ -1131,6 +1136,7 @@ async def update_player_pick(
                     "person_name": person["name"],
                     "year": updates.year,
                     "timestamp": updated_pick["timestamp"],
+                    "cache_invalidated": True,
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
@@ -1324,114 +1330,27 @@ async def get_picks(
                 },
             )
 
-            db = DynamoDBClient()
-
-            # Get all players for the year
-            players = await db.get_players(target_year)
-
-            # Build the detailed pick information
-            detailed_picks = []
-            for player in players:
-                # Get all picks for this player in the year
-                picks = await db.get_player_picks(player["id"], year)
-
-                if picks:
-                    # For each pick, get the person details and create a pick detail
-                    for pick in picks:
-                        picked_person = await db.get_person(pick["person_id"])
-
-                        # Extract additional person details from metadata
-                        person_metadata = (
-                            picked_person.get("metadata", {}) if picked_person else {}
-                        )
-
-                        pick_detail = {
-                            "player_id": player["id"],
-                            "player_name": player["name"],
-                            "draft_order": player["draft_order"],
-                            "pick_person_id": pick["person_id"],
-                            "pick_person_name": picked_person["name"]
-                            if picked_person
-                            else None,
-                            "pick_person_age": person_metadata.get("Age"),
-                            "pick_person_birth_date": person_metadata.get("BirthDate"),
-                            "pick_person_death_date": person_metadata.get("DeathDate"),
-                            "pick_timestamp": pick["timestamp"],
-                            "year": target_year,
-                        }
-                        detailed_picks.append(pick_detail)
-                else:
-                    # Include player even if they have no picks
-                    pick_detail = {
-                        "player_id": player["id"],
-                        "player_name": player["name"],
-                        "draft_order": player["draft_order"],
-                        "pick_person_id": None,
-                        "pick_person_name": None,
-                        "pick_person_age": None,
-                        "pick_person_birth_date": None,
-                        "pick_person_death_date": None,
-                        "pick_timestamp": None,
-                        "year": target_year,
-                    }
-                    detailed_picks.append(pick_detail)
-
-            # Sort by timestamp descending (None values last), then by draft order for no-pick players
-            detailed_picks.sort(key=lambda x: (x["pick_timestamp"] is None, x["pick_timestamp"] or "", x["draft_order"]), reverse=True)
-
-            total_items = len(detailed_picks)
-
-            # Handle limit case
-            if limit is not None:
-                limited_picks = detailed_picks[:limit]
-                cwlogger.info(
-                    "GET_PICKS_COMPLETE",
-                    f"Retrieved {len(limited_picks)} picks (limited from {total_items})",
-                    data={
-                        "year": target_year,
-                        "limit": limit,
-                        "total_items": total_items,
-                        "returned_items": len(limited_picks),
-                        "elapsed_ms": timer.elapsed_ms,
-                    },
-                )
-                return {
-                    "message": "Successfully retrieved picks",
-                    "data": limited_picks,
-                    "total": total_items,
-                    "page": 1,
-                    "page_size": limit,
-                    "total_pages": 1
-                }
-
-            # Handle pagination case
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
-            paginated_picks = detailed_picks[start_idx:end_idx]
-            total_pages = (total_items + page_size - 1) // page_size
+            # Use the optimized picks service
+            picks_service = PicksService(DynamoDBClient())
+            result = await picks_service.get_picks(
+                year=target_year,
+                limit=limit,
+                page=page,
+                page_size=page_size
+            )
 
             cwlogger.info(
                 "GET_PICKS_COMPLETE",
-                f"Retrieved {len(paginated_picks)} picks (page {page} of {total_pages})",
+                f"Retrieved {len(result['data'])} picks",
                 data={
-                    "year": year,
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": total_items,
-                    "total_pages": total_pages,
-                    "returned_items": len(paginated_picks),
+                    "year": target_year,
+                    "total_items": result["total"],
+                    "returned_items": len(result["data"]),
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
 
-            return {
-                "message": "Successfully retrieved picks",
-                "data": paginated_picks,
-                "total": total_items,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages
-            }
+            return result
 
         except Exception as e:
             cwlogger.error(
@@ -1629,121 +1548,33 @@ async def get_next_drafter():
     """
     with Timer() as timer:
         try:
-            db = DynamoDBClient()
-            year = datetime.now().year  # Current year for drafting
-
             cwlogger.info(
-                "GET_NEXT_DRAFTER_START", "Determining next drafter", data={"year": year}
+                "GET_NEXT_DRAFTER_START",
+                "Determining next drafter",
+                data={"year": datetime.now().year}
             )
 
-            # Get all players for the current year
-            players = await db.get_players(year)
-            if not players:
-                cwlogger.warning(
-                    "GET_NEXT_DRAFTER_ERROR",
-                    "No players found for current year",
-                    data={"year": year},
-                )
-                raise HTTPException(
-                    status_code=404, detail="No players found for current year"
-                )
-
-            # Get picks for each player and count active picks
-            player_data = []
-            for player in players:
-                picks = await db.get_player_picks(player["id"], year)
-
-                # Count picks for active people only
-                active_pick_count = 0
-                for pick in picks:
-                    person = await db.get_person(pick["person_id"])
-                    if person and "DeathDate" not in person.get("metadata", {}):
-                        active_pick_count += 1
-
-                # Log player's pick status
-                cwlogger.info(
-                    "GET_NEXT_DRAFTER_PLAYER",
-                    f"Analyzed picks for player {player['name']}",
-                    data={
-                        "player_id": player["id"],
-                        "player_name": player["name"],
-                        "draft_order": player["draft_order"],
-                        "total_picks": len(picks),
-                        "active_picks": active_pick_count,
-                        "year": year,
-                    },
-                )
-
-                # Only include players who haven't reached 20 active picks
-                if active_pick_count < 20:
-                    player_data.append(
-                        {
-                            "id": player["id"],
-                            "name": player["name"],
-                            "draft_order": player["draft_order"],
-                            "pick_count": len(picks),
-                            "active_pick_count": active_pick_count,
-                        }
-                    )
-
-            if not player_data:
-                cwlogger.warning(
-                    "GET_NEXT_DRAFTER_WARNING",
-                    "No eligible players found",
-                    data={"year": year, "total_players": len(players)},
-                )
-                return {
-                    "message": "No eligible players found",
-                    "data": {
-                        "player_id": "",
-                        "player_name": "",
-                        "draft_order": 0,
-                        "current_pick_count": 0,
-                        "active_pick_count": 0
-                    }
-                }
-
-            # Sort by pick count first, then by draft order
-            player_data.sort(key=lambda x: (x["pick_count"], x["draft_order"]))
-
-            # Return the first player (lowest draft order and least picks)
-            next_drafter = player_data[0]
+            # Use the optimized picks service
+            picks_service = PicksService(DynamoDBClient())
+            result = await picks_service.get_next_drafter()
 
             cwlogger.info(
                 "GET_NEXT_DRAFTER_COMPLETE",
-                f"Selected next drafter: {next_drafter['name']}",
+                f"Selected next drafter: {result['data']['player_name']}",
                 data={
-                    "player_id": next_drafter["id"],
-                    "player_name": next_drafter["name"],
-                    "draft_order": next_drafter["draft_order"],
-                    "pick_count": next_drafter["pick_count"],
-                    "active_pick_count": next_drafter["active_pick_count"],
-                    "eligible_players": len(player_data),
-                    "year": year,
+                    **result["data"],
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
 
-            return {
-                "message": "Successfully determined next drafter",
-                "data": {
-                    "player_id": next_drafter["id"],
-                    "player_name": next_drafter["name"],
-                    "draft_order": next_drafter["draft_order"],
-                    "current_pick_count": next_drafter["pick_count"],
-                    "active_pick_count": next_drafter["active_pick_count"],
-                },
-            }
+            return result
 
-        except HTTPException:
-            # Re-raise HTTP exceptions (they're already logged)
-            raise
         except Exception as e:
             cwlogger.error(
                 "GET_NEXT_DRAFTER_ERROR",
                 "Unexpected error determining next drafter",
                 error=e,
-                data={"year": year, "elapsed_ms": timer.elapsed_ms},
+                data={"elapsed_ms": timer.elapsed_ms},
             )
             raise HTTPException(
                 status_code=500,
@@ -1765,7 +1596,6 @@ async def get_picks_counts(
     """
     with Timer() as timer:
         try:
-            # Use current year if none specified
             target_year = year if year else datetime.now().year
 
             cwlogger.info(
@@ -1774,61 +1604,21 @@ async def get_picks_counts(
                 data={"year": target_year},
             )
 
-            db = DynamoDBClient()
-
-            # Get all players for the year
-            players = await db.get_players(target_year)
-
-            # Calculate pick counts for each player
-            picks_counts = []
-            for player in players:
-                # Get all picks for this player in the year
-                picks = await db.get_player_picks(player["id"], target_year)
-
-                # Count only picks for people who are alive
-                alive_pick_count = 0
-                for pick in picks:
-                    person = await db.get_person(pick["person_id"])
-                    if person and "DeathDate" not in person.get("metadata", {}):
-                        alive_pick_count += 1
-
-                picks_count_entry = PicksCountEntry(
-                    player_id=player["id"],
-                    player_name=player["name"],
-                    draft_order=player["draft_order"],
-                    pick_count=alive_pick_count,
-                    year=target_year,
-                )
-                picks_counts.append(picks_count_entry)
-
-                cwlogger.info(
-                    "GET_PICKS_COUNTS_PLAYER",
-                    f"Calculated picks for player {player['name']}",
-                    data={
-                        "player_id": player["id"],
-                        "player_name": player["name"],
-                        "pick_count": len(picks),
-                        "year": target_year,
-                    },
-                )
-
-            # Sort by draft order
-            picks_counts.sort(key=lambda x: x.draft_order)
+            # Use the optimized picks service
+            picks_service = PicksService(DynamoDBClient())
+            result = await picks_service.get_picks_counts(target_year)
 
             cwlogger.info(
                 "GET_PICKS_COUNTS_COMPLETE",
-                f"Retrieved pick counts for {len(picks_counts)} players",
+                f"Retrieved pick counts for {len(result['data'])} players",
                 data={
                     "year": target_year,
-                    "player_count": len(picks_counts),
+                    "player_count": len(result['data']),
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
 
-            return {
-                "message": "Successfully retrieved pick counts",
-                "data": picks_counts,
-            }
+            return result
 
         except Exception as e:
             cwlogger.error(
