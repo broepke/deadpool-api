@@ -75,7 +75,6 @@ class PlayerStrategy(BaseModel):
     player_id: str
     player_name: str
     preferred_age_ranges: List[str]
-    preferred_categories: List[str]
     pick_timing_pattern: str
     success_rate: float
     score_progression: List[float]

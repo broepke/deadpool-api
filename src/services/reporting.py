@@ -17,7 +17,9 @@ class ReportingService:
             {"range": "50-59", "min": 50, "max": 59},
             {"range": "60-69", "min": 60, "max": 69},
             {"range": "70-79", "min": 70, "max": 79},
-            {"range": "80+", "min": 80, "max": float('inf')}
+            {"range": "80-89", "min": 80, "max": 89},
+            {"range": "90-99", "min": 90, "max": 99},
+            {"range": "100+", "min": 100, "max": float('inf')}
         ]
 
     async def get_overview_stats(self, year: Optional[int] = None) -> Dict[str, Any]:
@@ -511,7 +513,6 @@ class ReportingService:
                     "player_id": player["id"],
                     "player_name": player["name"],
                     "preferred_age_ranges": preferred_age_ranges,
-                    "preferred_categories": [],  # Categories not implemented
                     "pick_timing_pattern": timing_pattern,
                     "success_rate": deceased_picks / len(picks) if picks else 0,
                     "score_progression": score_progression
