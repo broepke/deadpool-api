@@ -448,6 +448,8 @@ class ReportingService:
                 score_progression = []
                 current_score = 0
                 deceased_picks = 0
+                # Track death dates and scores for progression
+                death_events = []
 
                 # Analyze each pick
                 for pick in picks:
@@ -485,9 +487,12 @@ class ReportingService:
                             # Calculate score: 50 + (100 - age)
                             score = 50 + (100 - age)
                             current_score += score
-
-                    # Add current score to progression
-                    score_progression.append(current_score)
+                            # Track death date and new score
+                            death_events.append({
+                                "date": death_date,
+                                "score": current_score,
+                                "person_name": person.get("name", "Unknown")
+                            })
 
                 # Calculate preferred age ranges
                 preferred_ranges = sorted(
@@ -509,6 +514,30 @@ class ReportingService:
                 elif pick_timing["evening"] > 0.8 * total_picks_count:
                     timing_pattern = "evening regular"
 
+                # Build score progression with dates
+                # Sort death events by date
+                death_events.sort(key=lambda x: datetime.strptime(x["date"], "%Y-%m-%d"))
+                
+                # Initialize score progression with dates
+                score_progression = []
+                current_score = 0
+                
+                # Add initial zero score entry if there are death events
+                if death_events:
+                    score_progression.append({"score": 0, "date": None})
+                
+                # Add each death event with its date and cumulative score
+                for event in death_events:
+                    score_progression.append({
+                        "score": event["score"],
+                        "date": event["date"],
+                        "person_name": event["person_name"]
+                    })
+                
+                # If no deaths, add a single zero entry
+                if not score_progression:
+                    score_progression.append({"score": 0, "date": None})
+                
                 player_stats = {
                     "player_id": player["id"],
                     "player_name": player["name"],
@@ -522,7 +551,7 @@ class ReportingService:
 
             # Sort by final score
             player_analytics.sort(
-                key=lambda x: x["score_progression"][-1] if x["score_progression"] else 0,
+                key=lambda x: x["score_progression"][-1]["score"] if x["score_progression"] else 0,
                 reverse=True
             )
 

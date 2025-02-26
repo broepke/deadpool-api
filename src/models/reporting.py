@@ -77,7 +77,7 @@ class PlayerStrategy(BaseModel):
     preferred_age_ranges: List[str]
     pick_timing_pattern: str
     success_rate: float
-    score_progression: List[float]
+    score_progression: List[Dict[str, Any]]  # Contains score and date
 
 class PlayerAnalyticsResponse(BaseModel):
     """Response model for player analytics."""
