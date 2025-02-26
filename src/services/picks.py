@@ -24,7 +24,12 @@ class PicksService:
         Uses caching to improve performance.
         """
         target_year = year if year else datetime.now().year
-        cache_key = f"picks_list_{target_year}"
+        
+        # Include pagination parameters in the cache key
+        if limit is not None:
+            cache_key = f"picks_list_{target_year}_limit_{limit}"
+        else:
+            cache_key = f"picks_list_{target_year}_page_{page}_size_{page_size}"
 
         return await reporting_cache.get_or_compute(
             cache_key,
@@ -314,13 +319,15 @@ class PicksService:
         """Invalidate all picks-related caches for a specific year."""
         target_year = year if year else datetime.now().year
         
-        # Invalidate all related caches
-        cache_keys = [
-            f"picks_list_{target_year}",
-            f"picks_counts_{target_year}",
-            f"next_drafter_{target_year}"
-        ]
-        for key in cache_keys:
-            reporting_cache.delete(key)
-            if key.startswith('next_drafter_'):
-                next_drafter_cache.delete(key)
+        # Get all cache keys
+        all_cache_keys = list(reporting_cache._cache.keys())
+        next_drafter_keys = list(next_drafter_cache._cache.keys())
+        
+        # Invalidate all picks list caches for the target year
+        for key in all_cache_keys:
+            if key.startswith(f"picks_list_{target_year}"):
+                reporting_cache.delete(key)
+        
+        # Invalidate other related caches
+        reporting_cache.delete(f"picks_counts_{target_year}")
+        next_drafter_cache.delete(f"next_drafter_{target_year}")
