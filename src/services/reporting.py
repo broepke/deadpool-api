@@ -484,14 +484,11 @@ class ReportingService:
                         if death_year == target_year:
                             deceased_picks += 1
                             total_deaths += 1
-                            # Calculate score: 50 + (100 - age)
-                            score = 50 + (100 - age)
-                            current_score += score
-                            # Track death date and new score
+                            # Track death date and person info
                             death_events.append({
                                 "date": death_date,
-                                "score": current_score,
-                                "person_name": person.get("name", "Unknown")
+                                "person_name": person.get("name", "Unknown"),
+                                "age": age
                             })
 
                 # Calculate preferred age ranges
@@ -520,7 +517,7 @@ class ReportingService:
                 
                 # Initialize score progression with dates
                 score_progression = []
-                current_score = 0
+                running_total = 0
                 
                 # Add initial zero score entry if there are death events
                 if death_events:
@@ -528,8 +525,14 @@ class ReportingService:
                 
                 # Add each death event with its date and cumulative score
                 for event in death_events:
+                    # Calculate individual score for this death: 50 + (100 - age)
+                    individual_score = 50 + (100 - event["age"])
+                    
+                    # Add to running total
+                    running_total += individual_score
+                    
                     score_progression.append({
-                        "score": event["score"],
+                        "score": running_total,
                         "date": event["date"],
                         "person_name": event["person_name"]
                     })
