@@ -174,7 +174,8 @@ class Player(BaseModel):
     name: str
     draft_order: int
     year: int
-    phone_number: Optional[str] = None
+    phone_number: Optional[str] = None  # Keep for individual player endpoint
+    has_phone: Optional[bool] = None    # New field for list endpoint
     phone_verified: Optional[bool] = None
     sms_notifications_enabled: Optional[bool] = None
 

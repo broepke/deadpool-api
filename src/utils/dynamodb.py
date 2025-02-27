@@ -167,14 +167,15 @@ class DynamoDBClient:
                 for player_id, draft_order in player_info:
                     player = all_players.get(player_id)
                     if player:
+                        # For the list endpoint, use a different field name for the boolean version of phone_number
                         transformed = {
                             "id": player_id,
                             "name": f"{player.get('FirstName', '')} {player.get('LastName', '')}".strip(),
                             "draft_order": draft_order,
                             "year": target_year,
-                            "phone_number": player.get("PhoneNumber"),
-                            "phone_verified": player.get("PhoneVerified"),
-                            "sms_notifications_enabled": player.get("SmsNotificationsEnabled"),
+                            "has_phone": True if player.get("PhoneNumber") else False,  # Boolean field with different name
+                            "phone_verified": True if player.get("PhoneVerified") else False,
+                            "sms_notifications_enabled": True if player.get("SmsNotificationsEnabled") else False,
                             "verification_code": player.get("VerificationCode"),
                             "verification_timestamp": player.get("VerificationTimestamp"),
                         }
@@ -406,7 +407,7 @@ class DynamoDBClient:
                 "name": f"{first_name} {last_name}".strip(),
                 "draft_order": draft_order,
                 "year": target_year,
-                "phone_number": player.get("PhoneNumber"),
+                "phone_number": player.get("PhoneNumber"),  # Return actual phone number for individual player endpoint
                 "phone_verified": player.get("PhoneVerified", False),
                 "sms_notifications_enabled": player.get("SmsNotificationsEnabled", True),
                 "verification_code": player.get("VerificationCode"),
