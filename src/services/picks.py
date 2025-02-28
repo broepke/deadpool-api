@@ -321,7 +321,6 @@ class PicksService:
         
         # Get all cache keys
         all_cache_keys = list(reporting_cache._cache.keys())
-        next_drafter_keys = list(next_drafter_cache._cache.keys())
         
         # Invalidate all picks list caches for the target year
         for key in all_cache_keys:
