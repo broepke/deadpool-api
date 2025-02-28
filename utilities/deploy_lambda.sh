@@ -37,6 +37,7 @@ deactivate
 rm -rf lvenv package
 
 echo "🚀 Deploying to AWS Lambda..."
-aws lambda update-function-code --function-name Deadpool-app --zip-file fileb://lambda_function.zip
+# Adding --no-cli-pager to prevent interactive paging that requires pressing Q to exit
+aws lambda update-function-code --function-name Deadpool-app --zip-file fileb://lambda_function.zip --no-cli-pager --output json
 
 echo "✅ Deployment complete!"
