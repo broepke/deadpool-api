@@ -21,16 +21,15 @@ from ..models.deadpool import (
     PaginatedPickDetailResponse,
     NextDrafterResponse,
     LeaderboardResponse,
-    LeaderboardEntry,
     DraftRequest,
     DraftResponse,
     PicksCountResponse,
     PlayerProfileUpdate,
     ProfileUpdateResponse,
-    SearchResponse,  # Add new search response model
+    SearchResponse,
 )
-from ..services.search import SearchService  # Add search service
-from ..services.picks import PicksService  # Add picks service
+from ..services.search import SearchService
+from ..services.picks import PicksService
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.logging import cwlogger, Timer
 from ..utils.name_matching import names_match, get_player_name
@@ -1650,9 +1649,8 @@ async def get_picks_by_person(
     """
     with Timer() as timer:
         try:
+            # Verify person exists first to return a proper 404 if needed
             db = DynamoDBClient()
-
-            # Verify person exists
             person = await db.get_person(person_id)
             if not person:
                 cwlogger.warning(
@@ -1662,148 +1660,43 @@ async def get_picks_by_person(
                 )
                 raise HTTPException(status_code=404, detail="Person not found")
 
-            # Get all draft orders to find years with data
-            draft_orders = await db.get_draft_order()
-            
-            # If year parameter was provided, only search that year
-            # Otherwise search all years from draft orders
-            years_to_search = {year} if year is not None else {order["year"] for order in draft_orders}
-
             cwlogger.info(
                 "GET_PICKS_BY_PERSON_START",
                 f"Retrieving picks for person {person_id}",
                 data={
                     "person_id": person_id,
+                    "person_name": person["name"],
                     "year": year,
-                    "years_to_search": sorted(list(years_to_search)),
                     "limit": limit,
                     "page": page,
                     "page_size": page_size
                 },
             )
-            
-            cwlogger.info(
-                    "GET_PICKS_BY_PERSON_DEBUG",
-                    "Found years with draft orders",
-                    data={"years": sorted(list(years_to_search))}
-                )
-            
-            # Get all players for each year
-            all_players = []
-            for search_year in years_to_search:
-                year_players = await db.get_players(search_year)
-                cwlogger.info(
-                    "GET_PICKS_BY_PERSON_DEBUG",
-                    f"Found players for year {search_year}",
-                    data={
-                        "year": search_year,
-                        "player_count": len(year_players)
-                    }
-                )
-                for player in year_players:
-                    player["year"] = search_year  # Ensure year is set correctly
-                    all_players.append(player)
-            
-            # Build the detailed pick information for this person
-            detailed_picks = []
-            seen_picks = set()  # Track unique picks by player_id, year, and timestamp
-            
-            for player in all_players:
-                # Get picks for this player
-                # If year parameter was provided, filter by that year
-                # Otherwise pass None to search all years
-                picks = await db.get_player_picks(
-                    player["id"],
-                    year if year else None
-                )
-                
-                # Filter picks for the specific person
-                for pick in picks:
-                    if pick["person_id"] == person_id:
-                        # Create unique key for this pick using the year and timestamp
-                        pick_key = f"{player['id']}_{pick['timestamp']}"
-                        
-                        # Only add if we haven't seen this pick before
-                        if pick_key not in seen_picks:
-                            seen_picks.add(pick_key)
-                            
-                            # Extract additional person details from metadata
-                            person_metadata = person.get("metadata", {})
-                            
-                            pick_detail = {
-                                "player_id": player["id"],
-                                "player_name": player["name"],
-                                "draft_order": player["draft_order"],
-                                "pick_person_id": person_id,
-                                "pick_person_name": person["name"],
-                                "pick_person_age": person_metadata.get("Age"),
-                                "pick_person_birth_date": person_metadata.get("BirthDate"),
-                                "pick_person_death_date": person_metadata.get("DeathDate"),
-                                "pick_timestamp": pick["timestamp"],
-                                "year": pick["year"],
-                            }
-                            detailed_picks.append(pick_detail)
 
-            # Sort by timestamp descending
-            detailed_picks.sort(key=lambda x: x["pick_timestamp"] or "", reverse=True)
-
-            total_items = len(detailed_picks)
-
-            # Handle limit case
-            if limit is not None:
-                limited_picks = detailed_picks[:limit]
-                cwlogger.info(
-                    "GET_PICKS_BY_PERSON_COMPLETE",
-                    f"Retrieved {len(limited_picks)} picks (limited from {total_items})",
-                    data={
-                        "person_id": person_id,
-                        "person_name": person["name"],
-                        "year": year,
-                        "limit": limit,
-                        "total_items": total_items,
-                        "returned_items": len(limited_picks),
-                        "elapsed_ms": timer.elapsed_ms,
-                    },
-                )
-                return {
-                    "message": "Successfully retrieved picks",
-                    "data": limited_picks,
-                    "total": total_items,
-                    "page": 1,
-                    "page_size": limit,
-                    "total_pages": 1
-                }
-
-            # Handle pagination case
-            start_idx = (page - 1) * page_size
-            end_idx = start_idx + page_size
-            paginated_picks = detailed_picks[start_idx:end_idx]
-            total_pages = (total_items + page_size - 1) // page_size
+            # Use the optimized picks service with caching and batch operations
+            picks_service = PicksService(db)
+            result = await picks_service.get_picks_by_person(
+                person_id=person_id,
+                year=year,
+                limit=limit,
+                page=page,
+                page_size=page_size
+            )
 
             cwlogger.info(
                 "GET_PICKS_BY_PERSON_COMPLETE",
-                f"Retrieved {len(paginated_picks)} picks (page {page} of {total_pages})",
+                f"Retrieved {len(result['data'])} picks",
                 data={
                     "person_id": person_id,
                     "person_name": person["name"],
                     "year": year,
-                    "page": page,
-                    "page_size": page_size,
-                    "total_items": total_items,
-                    "total_pages": total_pages,
-                    "returned_items": len(paginated_picks),
+                    "total_items": result["total"],
+                    "returned_items": len(result["data"]),
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
 
-            return {
-                "message": "Successfully retrieved picks",
-                "data": paginated_picks,
-                "total": total_items,
-                "page": page,
-                "page_size": page_size,
-                "total_pages": total_pages
-            }
+            return result
 
         except HTTPException:
             raise
@@ -1847,76 +1740,22 @@ async def get_leaderboard(
                 data={"year": target_year},
             )
 
-            db = DynamoDBClient()
-
-            # Get all players for the year
-            players = await db.get_players(target_year)
-
-            # Calculate scores for each player
-            leaderboard_entries = []
-            for player in players:
-                total_score = 0
-                # Get all picks for this player in the year
-                picks = await db.get_player_picks(player["id"], target_year)
-
-                # Calculate score for each pick
-                dead_picks = 0
-                for pick in picks:
-                    person = await db.get_person(pick["person_id"])
-                    metadata = person.get("metadata", {}) if person else {}
-                    death_date = metadata.get("DeathDate")
-                    
-                    if death_date:
-                        # Extract year from death date and compare to target year
-                        death_year = datetime.strptime(death_date, "%Y-%m-%d").year
-                        if death_year == target_year:
-                            # Person died in target year, calculate score
-                            age = metadata.get("Age", 0)
-                            pick_score = 50 + (100 - age)
-                            total_score += pick_score
-                            dead_picks += 1
-
-                # Create leaderboard entry
-                entry = LeaderboardEntry(
-                    player_id=player["id"],
-                    player_name=player["name"],
-                    score=total_score,
-                )
-                leaderboard_entries.append(entry)
-
-                cwlogger.info(
-                    "LEADERBOARD_PLAYER",
-                    f"Calculated score for player {player['name']}",
-                    data={
-                        "player_id": player["id"],
-                        "player_name": player["name"],
-                        "score": total_score,
-                        "total_picks": len(picks),
-                        "dead_picks": dead_picks,
-                        "year": target_year,
-                    },
-                )
-
-            # Sort by score (highest first)
-            leaderboard_entries.sort(key=lambda x: x.score, reverse=True)
+            # Use the optimized picks service with caching and batch operations
+            picks_service = PicksService(DynamoDBClient())
+            result = await picks_service.get_leaderboard(target_year)
 
             cwlogger.info(
                 "LEADERBOARD_COMPLETE",
                 f"Generated leaderboard for year {target_year}",
                 data={
                     "year": target_year,
-                    "player_count": len(leaderboard_entries),
-                    "top_score": leaderboard_entries[0].score
-                    if leaderboard_entries
-                    else 0,
+                    "player_count": len(result["data"]),
+                    "top_score": result["data"][0].score if result["data"] else 0,
                     "elapsed_ms": timer.elapsed_ms,
                 },
             )
 
-            return {
-                "message": "Successfully retrieved leaderboard",
-                "data": leaderboard_entries,
-            }
+            return result
 
         except Exception as e:
             cwlogger.error(
