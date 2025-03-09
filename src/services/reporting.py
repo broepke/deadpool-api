@@ -446,7 +446,6 @@ class ReportingService:
                     "night": 0       # 0-6
                 }
                 score_progression = []
-                current_score = 0
                 deceased_picks = 0
                 # Track death dates and scores for progression
                 death_events = []
@@ -541,13 +540,47 @@ class ReportingService:
                 if not score_progression:
                     score_progression.append({"score": 0, "date": None})
                 
+                # Calculate points for the new points category
+                current_points = running_total  # Current points is the sum of points from deceased picks
+                
+                # Calculate total potential points and remaining points
+                total_potential_points = 0
+                remaining_points = 0
+                
+                # Process all picks to calculate potential and remaining points
+                for pick in picks:
+                    person = people.get(pick["person_id"])
+                    if not person:
+                        continue
+                        
+                    age = person.get("metadata", {}).get("Age", 0)
+                    potential_score = 50 + (100 - age)
+                    total_potential_points += potential_score
+                    
+                    # Check if the person is still alive (no death date or death date in future years)
+                    death_date = person.get("metadata", {}).get("DeathDate")
+                    is_alive = True
+                    if death_date:
+                        death_year = datetime.strptime(death_date, "%Y-%m-%d").year
+                        if death_year <= target_year:
+                            is_alive = False
+                    
+                    # Add to remaining points if the person is still alive
+                    if is_alive:
+                        remaining_points += potential_score
+                
                 player_stats = {
                     "player_id": player["id"],
                     "player_name": player["name"],
                     "preferred_age_ranges": preferred_age_ranges,
                     "pick_timing_pattern": timing_pattern,
                     "success_rate": deceased_picks / len(picks) if picks else 0,
-                    "score_progression": score_progression
+                    "score_progression": score_progression,
+                    "points": {
+                        "current": current_points,
+                        "total_potential": total_potential_points,
+                        "remaining": remaining_points
+                    }
                 }
 
                 player_analytics.append(player_stats)

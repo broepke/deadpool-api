@@ -78,6 +78,11 @@ class PlayerStrategy(BaseModel):
     pick_timing_pattern: str
     success_rate: float
     score_progression: List[Dict[str, Any]]  # Contains score and date
+    points: Dict[str, float] = {
+        "current": 0.0,
+        "total_potential": 0.0,
+        "remaining": 0.0
+    }
 
 class PlayerAnalyticsResponse(BaseModel):
     """Response model for player analytics."""
