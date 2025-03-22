@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from ..models.deadpool import PickDetail, PicksCountEntry, LeaderboardEntry
 from ..utils.dynamodb import DynamoDBClient
 from ..utils.caching import reporting_cache, next_drafter_cache
+from ..utils.logging import cwlogger
 
 
 class PicksService:
@@ -428,7 +429,6 @@ class PicksService:
             cache_key,
             lambda: self._compute_picks_by_person(person_id, year, limit, page, page_size)
         )
-    
     async def _compute_picks_by_person(
         self,
         person_id: str,
@@ -545,4 +545,18 @@ class PicksService:
             }
             
         except Exception as e:
+            cwlogger.error(
+                "COMPUTE_PICKS_BY_PERSON_ERROR",
+                f"Error computing picks for person {person_id}",
+                error=e,
+                data={"person_id": person_id, "year": year}
+            )
+            return {
+                "message": "Error retrieving picks",
+                "data": [],
+                "total": 0,
+                "page": page if limit is None else 1,
+                "page_size": limit or page_size,
+                "total_pages": 0
+            }
             raise Exception(f"Error computing picks by person: {str(e)}")
