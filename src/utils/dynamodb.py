@@ -224,8 +224,12 @@ class DynamoDBClient:
                     # SK format: PICK#year#person_id
                     parts = item["SK"].split("#")
                     if len(parts) >= 3:
+                        # Extract the person_id from the SK
+                        # If there are more than 3 parts, join the remaining parts with "#"
+                        # This handles cases where the person ID might contain "#"
+                        person_id = "#".join(parts[2:])
                         picks.append({
-                            "person_id": parts[2],
+                            "person_id": person_id,
                             "year": int(parts[1]),
                             "timestamp": item.get("Timestamp"),
                         })
@@ -489,9 +493,13 @@ class DynamoDBClient:
                 # SK format: PICK#year#person_id
                 parts = item["SK"].split("#")
                 if len(parts) >= 3:
-                    pick_person_id = parts[2]
+                    # Extract the person_id from the SK
+                    # If there are more than 3 parts, join the remaining parts with "#"
+                    pick_person_id = "#".join(parts[2:])
+                    print(f"DEBUG: Found pick with person_id: {pick_person_id}")
                     if person_id_substring in pick_person_id:
                         person_ids_in_picks.add(pick_person_id)
+                        print(f"DEBUG: Added to person_ids_in_picks: {pick_person_id}")
             
             # Now scan for person records
             person_scan_response = self.table.scan(
@@ -698,9 +706,13 @@ class DynamoDBClient:
                 # SK format: PICK#year#person_id
                 parts = item["SK"].split("#")
                 if len(parts) >= 3:
+                    # Extract the person_id from the SK
+                    # If there are more than 3 parts, join the remaining parts with "#"
+                    # This handles cases where the person ID might contain "#"
+                    person_id = "#".join(parts[2:])
                     picks.append(
                         {
-                            "person_id": parts[2],
+                            "person_id": person_id,
                             "year": int(parts[1]),
                             "timestamp": item.get("Timestamp"),
                         }

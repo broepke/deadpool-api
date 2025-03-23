@@ -418,17 +418,108 @@ class PicksService:
         page_size: Optional[int] = 10
     ) -> Dict[str, Any]:
         """Get picks for a specific person with optimized batch operations and caching."""
-        # Create cache key based on parameters
-        cache_key = f"person_picks_{person_id}_{year or 'all'}"
-        if limit is not None:
-            cache_key += f"_limit_{limit}"
-        else:
-            cache_key += f"_page_{page}_size_{page_size}"
+        # Direct implementation to bypass all the complexity
+        db = self.db
         
-        return await reporting_cache.get_or_compute(
-            cache_key,
-            lambda: self._compute_picks_by_person(person_id, year, limit, page, page_size)
-        )
+        # First check if the person exists
+        person = await db.get_person(person_id)
+        if not person:
+            return {
+                "message": "Person not found",
+                "data": [],
+                "total": 0,
+                "page": page if limit is None else 1,
+                "page_size": limit or page_size,
+                "total_pages": 0
+            }
+        
+        # Get all players
+        players_by_id = {}  # Store players by ID to avoid duplicates
+        years_to_search = [y for y in range(2020, datetime.now().year + 1)]
+        
+        # If year is specified, only search that year
+        if year is not None:
+            years_to_search = [year]
+        
+        # Get players for each year
+        for search_year in years_to_search:
+            year_players = await db.get_players(search_year)
+            for player in year_players:
+                # Store the player with their year-specific draft order
+                player_key = f"{player['id']}_{search_year}"
+                if player_key not in players_by_id:
+                    players_by_id[player_key] = {
+                        "id": player["id"],
+                        "name": player["name"],
+                        "draft_order": player["draft_order"],
+                        "year": search_year
+                    }
+        
+        # Get picks for each player
+        all_picks = []
+        unique_picks = set()  # Track unique player-person-year combinations
+        
+        for player_key, player in players_by_id.items():
+            player_id = player["id"]
+            player_year = player["year"]
+            
+            # Only get picks for the specific year of this player entry
+            player_picks = await db.get_player_picks(player_id, player_year)
+            
+            for pick in player_picks:
+                if pick["person_id"] == person_id or person_id in pick["person_id"]:
+                    # Create a unique key for this player-person-year combination
+                    unique_key = f"{player_id}_{person_id}_{pick['year']}"
+                    
+                    # Only add if we haven't seen this combination before
+                    if unique_key not in unique_picks:
+                        unique_picks.add(unique_key)
+                        
+                        pick_detail = PickDetail(
+                            player_id=player_id,
+                            player_name=player["name"],
+                            draft_order=player["draft_order"],
+                            pick_person_id=person_id,
+                            pick_person_name=person["name"],
+                            pick_person_age=person["metadata"].get("Age"),
+                            pick_person_birth_date=person["metadata"].get("BirthDate"),
+                            pick_person_death_date=person["metadata"].get("DeathDate"),
+                            pick_timestamp=pick["timestamp"],
+                            year=pick["year"],
+                        )
+                        all_picks.append(pick_detail)
+        
+        # Sort by timestamp descending
+        all_picks.sort(key=lambda x: x.pick_timestamp or "", reverse=True)
+        
+        total_items = len(all_picks)
+        
+        # Handle limit case
+        if limit is not None:
+            limited_picks = all_picks[:limit]
+            return {
+                "message": "Successfully retrieved picks",
+                "data": limited_picks,
+                "total": total_items,
+                "page": 1,
+                "page_size": limit,
+                "total_pages": 1
+            }
+        
+        # Handle pagination case
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        paginated_picks = all_picks[start_idx:end_idx]
+        total_pages = (total_items + page_size - 1) // page_size
+        
+        return {
+            "message": "Successfully retrieved picks",
+            "data": paginated_picks,
+            "total": total_items,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
     async def _compute_picks_by_person(
         self,
         person_id: str,
@@ -455,10 +546,18 @@ class PicksService:
             
             # Get all draft orders to find years with data
             draft_orders = await db.get_draft_order()
-            
             # If year parameter was provided, only search that year
             # Otherwise search all years from draft orders
-            years_to_search = {year} if year is not None else {order["year"] for order in draft_orders}
+            if year is not None:
+                years_to_search = {year}
+            else:
+                # Make sure to include all years, not just those in draft orders
+                # This ensures we find picks from previous years
+                years_to_search = {order["year"] for order in draft_orders}
+                # Add some common years to ensure we catch all picks
+                for y in range(2020, datetime.now().year + 1):
+                    years_to_search.add(y)
+                print(f"DEBUG: Searching all years: {years_to_search}")
             
             # Get all players for each year in one batch
             all_players = {}
@@ -490,7 +589,9 @@ class PicksService:
                 
                 # Filter picks for the specific person
                 for pick in picks:
-                    if pick["person_id"] == person_id:
+                    # Check for exact match or if person_id is a substring of pick["person_id"]
+                    # This handles cases where the person ID might be stored with a different format
+                    if pick["person_id"] == person_id or person_id in pick["person_id"]:
                         # Create unique key for this pick
                         pick_key = f"{player_id}_{pick['timestamp']}"
                         

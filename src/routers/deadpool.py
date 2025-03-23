@@ -1768,3 +1768,88 @@ async def get_leaderboard(
                 status_code=500,
                 detail="An error occurred while generating the leaderboard",
             )
+
+
+@router.get("/debug/person/{person_id}")
+async def debug_person(
+    person_id: str = Path(..., description="The ID of the person to debug"),
+):
+    """
+    Debug endpoint to investigate person ID issues.
+    This endpoint is for debugging purposes only.
+    """
+    try:
+        db = DynamoDBClient()
+        
+        # First check if the person exists
+        person = await db.get_person(person_id)
+        
+        # Scan for similar person IDs
+        similar_persons = await db.scan_for_person(person_id)
+        
+        # Get all picks for this person
+        picks_service = PicksService(db)
+        picks_result = await picks_service.get_picks_by_person(
+            person_id=person_id,
+            limit=100  # Get a large number to ensure we see all picks
+        )
+        
+        return {
+            "person_exists": person is not None,
+            "person_data": person,
+            "similar_persons": similar_persons,
+            "picks_result": picks_result
+        }
+        
+    except Exception as e:
+        print(f"DEBUG: Error in debug endpoint: {str(e)}")
+        return {
+            "error": str(e)
+        }
+
+@router.get("/debug/direct-picks/{person_id}")
+async def debug_direct_picks(
+    person_id: str = Path(..., description="The ID of the person to get picks for"),
+):
+    """
+    Debug endpoint to directly get picks for a person without using the service layer.
+    This endpoint is for debugging purposes only.
+    """
+    try:
+        db = DynamoDBClient()
+        
+        # First check if the person exists
+        person = await db.get_person(person_id)
+        if not person:
+            return {"error": "Person not found"}
+        
+        # Get all players
+        players = await db.get_players()
+        
+        # Get picks for each player
+        all_picks = []
+        for player in players:
+            player_picks = await db.get_player_picks(player["id"])
+            for pick in player_picks:
+                if pick["person_id"] == person_id or person_id in pick["person_id"]:
+                    all_picks.append({
+                        "player_id": player["id"],
+                        "player_name": player["name"],
+                        "pick_person_id": pick["person_id"],
+                        "pick_person_name": person["name"],
+                        "pick_timestamp": pick["timestamp"],
+                        "year": pick["year"]
+                    })
+        
+        return {
+            "person_exists": True,
+            "person_data": person,
+            "picks_count": len(all_picks),
+            "picks": all_picks
+        }
+        
+    except Exception as e:
+        print(f"DEBUG: Error in direct picks endpoint: {str(e)}")
+        return {
+            "error": str(e)
+        }
