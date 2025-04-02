@@ -1509,9 +1509,9 @@ async def draft_person(draft_request: DraftRequest):
                 )
 
             # Create player pick entry
-            pick_update = {"person_id": person_id, "year": current_year}
+            # Pass person_id directly as a string to avoid storing it as a dictionary
             player_pick = await db.update_player_pick(
-                draft_request.player_id, pick_update
+                draft_request.player_id, person_id, current_year
             )
 
             cwlogger.info(

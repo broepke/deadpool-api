@@ -808,7 +808,8 @@ class DynamoDBClient:
                     "SK": f"PICK#{target_year}#{person_id}",
                     "Type": "Pick",
                     "Timestamp": timestamp,
-                    "PersonID": person_id  # Store the person ID as a separate attribute
+                    "PersonID": person_id,  # Store the person ID as a separate attribute
+                    "Year": target_year     # Store the year as a separate attribute for easier querying
                 }
             )
             
