@@ -229,27 +229,9 @@ class DynamoDBClient:
                         # This handles cases where the person ID might contain "#"
                         person_id = "#".join(parts[2:])
                         
-                        # Use PersonID attribute if available (for backward compatibility)
+                        # Use PersonID attribute if available
                         if "PersonID" in item:
                             person_id = item["PersonID"]
-                        
-                        # Store the actual person ID in the database for future picks
-                        # This is a migration step to fix existing data
-                        try:
-                            if isinstance(person_id, str) and person_id.startswith("{") and "person_id" in person_id:
-                                import ast
-                                person_dict = ast.literal_eval(person_id)
-                                actual_person_id = person_dict.get("person_id")
-                                if actual_person_id:
-                                    # Update the item with the correct person ID
-                                    self.table.update_item(
-                                        Key={"PK": f"PLAYER#{player_id}", "SK": item["SK"]},
-                                        UpdateExpression="SET PersonID = :pid",
-                                        ExpressionAttributeValues={":pid": actual_person_id}
-                                    )
-                                    person_id = actual_person_id
-                        except Exception as e:
-                            print(f"Error migrating person ID in batch: {e}")
                         
                         picks.append({
                             "person_id": person_id,
@@ -734,27 +716,9 @@ class DynamoDBClient:
                     # This handles cases where the person ID might contain "#"
                     person_id = "#".join(parts[2:])
                     
-                    # Use PersonID attribute if available (for backward compatibility)
+                    # Use PersonID attribute if available
                     if "PersonID" in item:
                         person_id = item["PersonID"]
-                    
-                    # Store the actual person ID in the database for future picks
-                    # This is a migration step to fix existing data
-                    try:
-                        if isinstance(person_id, str) and person_id.startswith("{") and "person_id" in person_id:
-                            import ast
-                            person_dict = ast.literal_eval(person_id)
-                            actual_person_id = person_dict.get("person_id")
-                            if actual_person_id:
-                                # Update the item with the correct person ID
-                                self.table.update_item(
-                                    Key={"PK": f"PLAYER#{player_id}", "SK": item["SK"]},
-                                    UpdateExpression="SET PersonID = :pid",
-                                    ExpressionAttributeValues={":pid": actual_person_id}
-                                )
-                                person_id = actual_person_id
-                    except Exception as e:
-                        print(f"Error migrating person ID: {e}")
                     
                     picks.append(
                         {
@@ -773,30 +737,21 @@ class DynamoDBClient:
             return []
 
     async def update_player_pick(
-        self, player_id: str, person_id_or_update: Union[str, Dict[str, Any]], year: Optional[int] = None
+        self, player_id: str, person_id: str, year: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Create or update a player's pick.
         
         Args:
             player_id: The ID of the player
-            person_id_or_update: Either a string person_id or a dictionary with person_id and optionally year
-            year: Optional year parameter, used if person_id_or_update is a string
+            person_id: The ID of the person being picked
+            year: Optional year parameter (defaults to current year)
             
         Returns:
             Dictionary with player_id, person_id, year, and timestamp
         """
         try:
-            # Handle both parameter styles
-            if isinstance(person_id_or_update, dict):
-                person_id = person_id_or_update.get("person_id")
-                target_year = person_id_or_update.get("year", datetime.now().year)
-            else:
-                person_id = person_id_or_update
-                target_year = year if year else datetime.now().year
-                
-            # Log the parameters for debugging
-            print(f"DEBUG: update_player_pick - player_id: {player_id}, person_id: {person_id}, year: {target_year}")
+            target_year = year if year else datetime.now().year
             
             # Create pick record
             timestamp = datetime.utcnow().isoformat()

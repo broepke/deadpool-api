@@ -18,10 +18,12 @@ async def test_draft_person():
     """Test the draft_person endpoint to verify it stores person IDs correctly."""
     print("\n=== Testing Draft Person Endpoint ===")
     
-    # Create a test draft request
+    # Create a test draft request with a unique name using timestamp
+    import time
+    unique_name = f"Test Person {int(time.time())}"
     draft_request = {
         "player_id": "a4888418-70a1-709e-374a-ae0e1c797660",  # Derek Cornwall
-        "name": "Test Person " + asyncio.current_task().get_name()  # Use task name to make it unique
+        "name": unique_name
     }
     
     # Make request to the draft endpoint

@@ -198,18 +198,8 @@ class PicksService:
                 # Count only picks for people who are alive
                 alive_pick_count = 0
                 for pick in picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in picks_counts: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if person and "DeathDate" not in person.get("metadata", {}):
                         alive_pick_count += 1
 
@@ -281,18 +271,8 @@ class PicksService:
                 # Count picks for active people only
                 active_pick_count = 0
                 for pick in picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in next_drafter: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if person and "DeathDate" not in person.get("metadata", {}):
                         active_pick_count += 1
 
@@ -395,21 +375,10 @@ class PicksService:
             for player in players:
                 total_score = 0
                 picks = all_picks.get(player["id"], [])
-                
                 # Calculate score for each pick
                 for pick in picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in leaderboard: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if person:
                         metadata = person.get("metadata", {})
                         death_date = metadata.get("DeathDate")
@@ -500,18 +469,8 @@ class PicksService:
             player_picks = await db.get_player_picks(player_id, player_year)
             
             for pick in player_picks:
-                # Extract the actual person_id if it's stored as a string representation of a dictionary
-                actual_person_id = pick["person_id"]
-                if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                    try:
-                        import ast
-                        person_dict = ast.literal_eval(actual_person_id)
-                        actual_person_id = person_dict.get("person_id")
-                    except Exception as e:
-                        print(f"Error parsing person_id from string in picks_by_person: {e}")
-                
                 # Check if this pick is for the requested person
-                if actual_person_id == person_id or person_id in str(actual_person_id):
+                if pick["person_id"] == person_id or person_id in str(pick["person_id"]):
                     # Create a unique key for this player-person-year combination
                     unique_key = f"{player_id}_{person_id}_{pick['year']}"
                     

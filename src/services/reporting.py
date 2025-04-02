@@ -65,18 +65,8 @@ class ReportingService:
             # Process all picks with optimized data access
             for player_picks in all_picks.values():
                 for pick in player_picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in overview_stats: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if person:
                         total_picks += 1
                         age = person.get("metadata", {}).get("Age", 0)
@@ -195,18 +185,8 @@ class ReportingService:
             # Process all picks and deaths
             for picks in all_picks.values():
                 for pick in picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in time_analytics: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if not person:
                         continue
 
@@ -328,18 +308,8 @@ class ReportingService:
             # Process all picks
             for picks in all_picks.values():
                 for pick in picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in demographic_analysis: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if not person:
                         continue
 
@@ -486,18 +456,8 @@ class ReportingService:
                 # Analyze each pick
                 for pick in picks:
                     total_picks += 1
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in player_analytics: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if not person:
                         continue
 
@@ -593,18 +553,8 @@ class ReportingService:
                 
                 # Process all picks to calculate potential and remaining points
                 for pick in picks:
-                    # Extract the actual person_id if it's stored as a string representation of a dictionary
-                    actual_person_id = pick["person_id"]
-                    if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
-                        try:
-                            import ast
-                            person_dict = ast.literal_eval(actual_person_id)
-                            actual_person_id = person_dict.get("person_id")
-                        except Exception as e:
-                            print(f"Error parsing person_id from string in player_analytics points: {e}")
-                    
-                    # Get person using the extracted ID
-                    person = people.get(actual_person_id)
+                    # Get person using the person ID
+                    person = people.get(pick["person_id"])
                     if not person:
                         continue
                         
