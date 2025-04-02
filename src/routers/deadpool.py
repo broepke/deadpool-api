@@ -1201,7 +1201,28 @@ async def get_player_picks(
             detailed_picks = []
             for pick in picks:
                 # Get person details
-                picked_person = await db.get_person(pick["person_id"])
+                # Extract the actual person_id if it's stored as a string representation of a dictionary
+                actual_person_id = pick["person_id"]
+                if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
+                    try:
+                        import ast
+                        person_dict = ast.literal_eval(actual_person_id)
+                        actual_person_id = person_dict.get("person_id")
+                        cwlogger.info(
+                            "GET_PLAYER_PICKS_INFO",
+                            "Extracted person_id from dictionary string",
+                            data={"original": pick["person_id"], "extracted": actual_person_id}
+                        )
+                    except Exception as e:
+                        cwlogger.error(
+                            "GET_PLAYER_PICKS_ERROR",
+                            "Error parsing person_id from string",
+                            error=e,
+                            data={"person_id_string": pick["person_id"]}
+                        )
+                
+                # Get person details using the extracted ID
+                picked_person = await db.get_person(actual_person_id)
                 
                 # Extract additional person details from metadata
                 person_metadata = picked_person.get("metadata", {}) if picked_person else {}
@@ -1210,7 +1231,7 @@ async def get_player_picks(
                     "player_id": player["id"],
                     "player_name": player["name"],
                     "draft_order": player["draft_order"],
-                    "pick_person_id": pick["person_id"],
+                    "pick_person_id": actual_person_id,  # Use the extracted ID
                     "pick_person_name": picked_person["name"] if picked_person else None,
                     "pick_person_age": person_metadata.get("Age"),
                     "pick_person_birth_date": person_metadata.get("BirthDate"),
@@ -1831,7 +1852,18 @@ async def debug_direct_picks(
         for player in players:
             player_picks = await db.get_player_picks(player["id"])
             for pick in player_picks:
-                if pick["person_id"] == person_id or person_id in pick["person_id"]:
+                # Extract the actual person_id if it's stored as a string representation of a dictionary
+                actual_person_id = pick["person_id"]
+                if isinstance(actual_person_id, str) and actual_person_id.startswith("{") and "person_id" in actual_person_id:
+                    try:
+                        import ast
+                        person_dict = ast.literal_eval(actual_person_id)
+                        actual_person_id = person_dict.get("person_id")
+                    except Exception as e:
+                        print(f"DEBUG: Error parsing person_id from string: {e}")
+                
+                # Check if this pick is for the requested person
+                if actual_person_id == person_id or person_id in str(actual_person_id):
                     all_picks.append({
                         "player_id": player["id"],
                         "player_name": player["name"],
