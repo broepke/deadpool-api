@@ -21,13 +21,17 @@ This document contains a comprehensive code review of the Deadpool API codebase 
   SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN")
   ```
 
-#### 1.2 Missing API Authentication
-- **Issue**: No authentication/authorization mechanisms in place
-- **Impact**: Unauthorized access to sensitive data
-- **Solution Options**:
-  - Implement API Gateway API Keys
-  - Add JWT token validation
-  - Use AWS IAM authentication
+#### 1.2 API Authentication Enhancement
+- **Current State**:
+  - API Gateway API Keys are implemented ✅
+  - Rate limiting per API key is implemented ✅
+- **Issue**: Single layer of authentication may not be sufficient for all use cases
+- **Impact**: Limited access control granularity for user-specific operations
+- **Enhancement Options**:
+  - Add JWT token validation for user-specific access control
+  - Implement AWS IAM authentication for service-to-service calls
+  - Consider OAuth2 for third-party integrations
+  - Add IP whitelisting for additional security layers
   
 #### 1.3 CORS Configuration
 - **Issue**: Hardcoded CORS origins in `src/main.py:46-53`
@@ -224,7 +228,7 @@ This document contains a comprehensive code review of the Deadpool API codebase 
 
 ### Phase 1: Critical Security (Week 1-2)
 - [ ] Move all hardcoded values to environment variables
-- [ ] Implement API authentication
+- [ ] Enhance API authentication (JWT for user-specific access, IAM for service calls)
 - [ ] Fix error handling in data transformation
 - [ ] Add boto3 to requirements-lambda.txt
 
@@ -267,10 +271,23 @@ These can be implemented immediately with minimal risk:
    pip install fastapi==0.115.0 pydantic==2.5.3
    ```
 
-4. **Basic API key authentication**
+4. **Add user-specific authentication layer**
    ```python
-   from fastapi.security import APIKeyHeader
-   api_key_header = APIKeyHeader(name="X-API-Key")
+   # Since API Gateway handles API keys and rate limiting,
+   # add JWT for user-specific operations
+   from fastapi import Depends, HTTPException
+   from fastapi.security import HTTPBearer
+   import jwt
+   
+   security = HTTPBearer()
+   
+   async def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+       token = credentials.credentials
+       try:
+           payload = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+           return payload
+       except jwt.InvalidTokenError:
+           raise HTTPException(status_code=401, detail="Invalid token")
    ```
 
 5. **Implement first batch operation**
@@ -285,7 +302,7 @@ By implementing these suggestions:
 - **Response Times**: 50-60% improvement for reporting endpoints
 - **Reliability**: Significant improvement with proper error handling
 - **Maintainability**: Better code organization and testing
-- **Security**: Proper authentication and configuration management
+- **Security**: Enhanced authentication and configuration management (building on existing API Gateway API keys and rate limiting)
 
 ## 🔍 Monitoring Success
 
