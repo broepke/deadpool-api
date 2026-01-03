@@ -1,0 +1,26 @@
+--- a/src/routers/deadpool.py
++++ b/src/routers/deadpool.py
+@@ -30,6 +30,7 @@
+ )
+ from ..services.search import SearchService
+ from ..services.picks import PicksService
++from ..services.picks_improved import ImprovedPicksService
+ from ..utils.dynamodb import DynamoDBClient
+ from ..utils.logging import cwlogger, Timer
+ from ..utils.name_matching import names_match, get_player_name
+@@ -1695,8 +1696,13 @@
+             )
+ 
+             # Use the optimized picks service with caching and batch operations
+-            picks_service = PicksService(db)
+-            result = await picks_service.get_picks_by_person(
++            # Use improved picks service for better 2026 migration handling
++            try:
++                picks_service = ImprovedPicksService(db)
++            except ImportError:
++                # Fallback to original service if improved version not available
++                picks_service = PicksService(db)
++            result = await picks_service.get_picks_by_person(
+                 person_id=person_id,
+                 year=year,
+                 limit=limit,
