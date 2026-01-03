@@ -116,15 +116,28 @@ class API2026Fixer:
             # Create 2026 draft order records
             with self.table.batch_writer() as batch:
                 for order in draft_orders_2025:
-                    new_item = {
-                        'PK': 'YEAR#2026',
-                        'SK': order['SK'],  # Keep same SK format
-                        'PlayerID': order['PlayerID'],
-                        'DraftOrder': order['DraftOrder'],
-                        'Year': 2026,
-                        'CreatedAt': datetime.now().isoformat()
-                    }
-                    batch.put_item(Item=new_item)
+                    # Extract player ID from SK format: ORDER#{draft_order}#PLAYER#{player_id}
+                    sk_parts = order['SK'].split('#')
+                    if len(sk_parts) >= 4:
+                        player_id = sk_parts[3]
+                        draft_order = int(sk_parts[1])
+                        
+                        new_item = {
+                            'PK': 'YEAR#2026',
+                            'SK': order['SK'],  # Keep same SK format
+                            'Year': 2026,
+                            'CreatedAt': datetime.now().isoformat()
+                        }
+                        
+                        # Add optional fields if they exist in the source
+                        if 'PlayerID' in order:
+                            new_item['PlayerID'] = order['PlayerID']
+                        if 'DraftOrder' in order:
+                            new_item['DraftOrder'] = order['DraftOrder']
+                        else:
+                            new_item['DraftOrder'] = draft_order
+                            
+                        batch.put_item(Item=new_item)
             
             self.fixes_applied.append(f"Created 2026 draft order with {len(draft_orders_2025)} records")
             self.log(f"✓ Created 2026 draft order with {len(draft_orders_2025)} records")
