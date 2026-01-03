@@ -220,8 +220,24 @@ class DeadpoolMigration:
             self.stats['errors'].append(f"Draft order creation: {str(e)}")
             return False
 
+    def is_celebrity_active_for_2026(self, person_id: str) -> tuple[bool, str]:
+        """Check if celebrity should be migrated to 2026 (didn't die in 2025)"""
+        person = self.get_person(person_id)
+        if not person:
+            return False, "Person not found"
+        
+        death_date = person.get('death_date')
+        if not death_date:
+            return True, "Still alive"
+        
+        # Check if death was in 2025
+        if death_date.startswith('2025'):
+            return False, f"Died in 2025 ({death_date})"
+        
+        return True, f"Died in different year ({death_date})"
+
     def migrate_player_picks(self, player_id: str, player_name: str) -> bool:
-        """Migrate all 2025 picks for a player to 2026"""
+        """Migrate ACTIVE 2025 picks for a player to 2026 (Active Picks Only strategy)"""
         self.log(f"Migrating picks for {player_name} ({player_id})...")
         
         try:
@@ -232,9 +248,29 @@ class DeadpoolMigration:
                 self.log(f"  No 2025 picks found for {player_name}")
                 return True
             
-            # Create 2026 picks
-            pick_items = []
+            # Filter for active picks only (celebrities still alive)
+            active_picks = []
+            deceased_picks = []
+            
             for pick in picks_2025:
+                is_active, reason = self.is_celebrity_active_for_2026(pick['person_id'])
+                if is_active:
+                    active_picks.append(pick)
+                else:
+                    deceased_picks.append({'pick': pick, 'reason': reason})
+            
+            self.log(f"  Active picks to migrate: {len(active_picks)}")
+            self.log(f"  Deceased picks to skip: {len(deceased_picks)}")
+            
+            # Log deceased picks being skipped
+            for deceased in deceased_picks:
+                person = self.get_person(deceased['pick']['person_id'])
+                person_name = person['name'] if person else deceased['pick']['person_id']
+                self.log(f"    Skipping {person_name}: {deceased['reason']}")
+            
+            # Create 2026 picks for active celebrities only
+            pick_items = []
+            for pick in active_picks:
                 item = {
                     'PK': f'PLAYER#{player_id}',
                     'SK': f'PICK#2026#{pick["person_id"]}',
@@ -244,16 +280,32 @@ class DeadpoolMigration:
                 }
                 pick_items.append(item)
             
+            # Create draft slots tracking item
+            available_slots = 20 - len(active_picks)
+            draft_slots_item = {
+                'PK': f'PLAYER#{player_id}',
+                'SK': 'DRAFT_SLOTS#2026',
+                'Type': 'DraftSlots',
+                'Year': 2026,
+                'MaxPicks': 20,
+                'CurrentPicks': len(active_picks),
+                'AvailableSlots': available_slots,
+                'LastUpdated': self.migration_timestamp
+            }
+            
             if not self.dry_run:
-                # Batch write the pick items
+                # Batch write the pick items and draft slots
                 with self.table.batch_writer() as batch:
                     for item in pick_items:
                         batch.put_item(Item=item)
+                    batch.put_item(Item=draft_slots_item)
                 
                 self.stats['picks_migrated'] += len(pick_items)
-                self.log(f"  Successfully migrated {len(pick_items)} picks for {player_name}")
+                self.log(f"  Successfully migrated {len(active_picks)} active picks for {player_name}")
+                self.log(f"  Available draft slots: {available_slots}")
             else:
-                self.log(f"  DRY RUN: Would migrate {len(pick_items)} picks for {player_name}")
+                self.log(f"  DRY RUN: Would migrate {len(active_picks)} active picks for {player_name}")
+                self.log(f"  DRY RUN: Would create draft slots record (available: {available_slots})")
             
             return True
             
@@ -380,3 +432,4 @@ def main():
 
 
 if __name__ == "__main__":
+    main()
