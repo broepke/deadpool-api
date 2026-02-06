@@ -103,10 +103,11 @@ class PicksService:
                     detailed_picks.append(pick_detail)
 
             # Sort by timestamp descending (None values last), then by draft order
+            # Handle timezone-aware/naive datetime mixing by normalizing to naive
             detailed_picks.sort(
                 key=lambda x: (
                     x.pick_timestamp is None,
-                    x.pick_timestamp or "",
+                    x.pick_timestamp.replace(tzinfo=None) if x.pick_timestamp and hasattr(x.pick_timestamp, 'replace') else (x.pick_timestamp or ""),
                     x.draft_order
                 ),
                 reverse=True
