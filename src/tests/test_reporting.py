@@ -125,6 +125,52 @@ async def test_get_time_analytics_weekly():
     assert sum(week["pick_count"] for week in data) == 4
 
 
+async def test_get_demographic_analysis():
+    """Demographics bucket picks by age range with per-range success and score."""
+    service = ReportingService(MockDynamoDBClient())
+    analysis = await service.get_demographic_analysis(2025)
+
+    metadata = analysis["metadata"]
+    assert metadata["total_picks"] == 4
+    assert metadata["total_deaths"] == 2
+    assert metadata["most_popular_range"] == "50-59"
+
+    by_range = {g["range"]: g for g in analysis["data"]}
+    # person1 (65) died -> 60-69 range scores 50 + (100-65) = 85.
+    assert by_range["60-69"]["death_count"] == 1
+    assert by_range["60-69"]["success_rate"] == 1.0
+    assert by_range["60-69"]["average_score"] == 85.0
+    # person3 (55) alive -> no deaths in 50-59.
+    assert by_range["50-59"]["death_count"] == 0
+
+
+async def test_get_player_analytics_points_and_success():
+    """Player analytics compute current/potential/remaining points and success."""
+    service = ReportingService(MockDynamoDBClient())
+    analysis = await service.get_player_analytics(None, 2025)
+
+    assert analysis["metadata"]["total_players"] == 2
+    assert analysis["metadata"]["overall_success_rate"] == 0.5
+
+    by_name = {p["player_name"]: p for p in analysis["data"]}
+    # Player 1 picked two people who both died in 2025 -> all potential realized.
+    p1 = by_name["Test Player 1"]
+    assert p1["success_rate"] == 1.0
+    assert p1["points"] == {"current": 160, "total_potential": 160, "remaining": 0}
+    # Player 2 picked two living people -> nothing scored yet, all still in play.
+    p2 = by_name["Test Player 2"]
+    assert p2["success_rate"] == 0.0
+    assert p2["points"] == {"current": 0, "total_potential": 160, "remaining": 160}
+
+
+async def test_get_player_analytics_single_player():
+    """Passing a player_id restricts analytics to that player."""
+    service = ReportingService(MockDynamoDBClient())
+    analysis = await service.get_player_analytics("player1", 2025)
+    assert len(analysis["data"]) == 1
+    assert analysis["data"][0]["player_name"] == "Test Player 1"
+
+
 async def test_get_category_analysis_returns_empty_when_untracked():
     """People carry no category metadata, so category analysis returns a
     well-formed empty result rather than raising."""
