@@ -601,7 +601,19 @@ class DynamoDBClient:
                 )
 
             # Get the updated player to return
-            return (await self.get_players(updates.get("year")))[0]
+            updated_player = await self.get_player(player_id, updates.get("year"))
+            if not updated_player:
+                # Fall back to a minimal representation if the draft order lookup
+                # can't resolve the player for the target year yet.
+                first_name = item.get("FirstName", "")
+                last_name = item.get("LastName", "")
+                return {
+                    "id": player_id,
+                    "name": f"{first_name} {last_name}".strip(),
+                    "draft_order": updates.get("draft_order") or 0,
+                    "year": updates.get("year") or datetime.now().year,
+                }
+            return updated_player
 
         except Exception as e:
             print(f"Error updating player: {str(e)}")
@@ -659,7 +671,7 @@ class DynamoDBClient:
             return []
 
     async def update_draft_order(
-        self, player_id: str, draft_order: int, year: Optional[int] = None
+        self, player_id: str, year: Optional[int] = None, draft_order: int = None
     ) -> Dict[str, Any]:
         """
         Update draft order for a player.

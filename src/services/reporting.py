@@ -383,6 +383,43 @@ class ReportingService:
             "updated_at": datetime.utcnow().isoformat()
         }
 
+    async def get_category_analysis(self, year: Optional[int] = None) -> Dict[str, Any]:
+        """Get analysis of picks by category.
+
+        People are not tagged with a category in the data model (only Age,
+        BirthDate, DeathDate, and Wiki references are tracked), so there is no
+        category dimension to aggregate on. Rather than 500, return a
+        well-formed empty response that documents why no data is present.
+        """
+        target_year = year if year else datetime.now().year
+        cache_key = f"category_analysis_{target_year}"
+
+        return await reporting_cache.get_or_compute(
+            cache_key,
+            lambda: self._compute_category_analysis(target_year)
+        )
+
+    async def _compute_category_analysis(self, target_year: int) -> Dict[str, Any]:
+        """Compute category analysis.
+
+        No category metadata exists on people, so this always returns an empty
+        data set with metadata indicating categories are not tracked.
+        """
+        return {
+            "data": [],
+            "metadata": {
+                "total_picks": 0,
+                "total_deaths": 0,
+                "overall_success_rate": 0,
+                "most_popular_category": None,
+                "most_successful_category": None,
+                "categories_tracked": False,
+                "note": "Category data is not tracked for people in this dataset.",
+                "year": target_year,
+                "updated_at": datetime.utcnow().isoformat()
+            }
+        }
+
     async def get_player_analytics(
         self,
         player_id: Optional[str] = None,
