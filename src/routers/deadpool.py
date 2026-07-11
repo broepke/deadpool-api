@@ -1480,6 +1480,34 @@ async def draft_person(draft_request: DraftRequest):
                                 detail=f"{draft_request.name} (or similar name) has already been drafted for {current_year}",
                             )
 
+            # Enforce the 20 active-pick maximum for the drafting player.
+            # (Mirrors the rotation logic in PicksService, which counts only
+            # picks for people who are still alive.)
+            drafting_player_picks = await db.get_player_picks(
+                draft_request.player_id, current_year
+            )
+            active_pick_count = 0
+            for existing_pick in drafting_player_picks:
+                picked_person = await db.get_person(existing_pick["person_id"])
+                if picked_person and "DeathDate" not in picked_person.get("metadata", {}):
+                    active_pick_count += 1
+
+            if active_pick_count >= 20:
+                cwlogger.warning(
+                    "DRAFT_LIMIT_REACHED",
+                    "Player has reached the maximum number of active picks",
+                    data={
+                        "player_id": draft_request.player_id,
+                        "person_name": draft_request.name,
+                        "year": current_year,
+                        "active_pick_count": active_pick_count,
+                    },
+                )
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Player has reached the maximum of 20 active picks for {current_year}",
+                )
+
             # If person exists in database but wasn't picked this year, use their ID
             if existing_person:
                 person_id = existing_person["id"]
