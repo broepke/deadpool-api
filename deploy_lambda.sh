@@ -18,7 +18,7 @@ pip install --upgrade pip wheel setuptools
 
 echo "📥 Installing Lambda dependencies..."
 pip install \
-    --platform manylinux2014_x86_64 \
+    --platform manylinux2014_aarch64 \
     --implementation cp \
     --python-version 3.13 \
     --only-binary=:all: \
