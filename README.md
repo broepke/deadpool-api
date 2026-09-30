@@ -7,7 +7,7 @@ The API can be deployed as an AWS Lambda function using the provided deployment 
 ### Prerequisites
 
 - AWS CLI installed and configured with appropriate credentials
-- Python 3.9 or later
+- Python 3.13 installed locally (the script builds the package with `python3.13`)
 - Access to the AWS Lambda function "Deadpool-app"
 
 ### Deployment Steps
@@ -15,7 +15,7 @@ The API can be deployed as an AWS Lambda function using the provided deployment 
 1. Deploy using the automated script:
 
    ```bash
-   ./utilities/deploy_lambda.sh
+   ./deploy_lambda.sh
    ```
 
    This script will:
@@ -28,12 +28,11 @@ The API can be deployed as an AWS Lambda function using the provided deployment 
 
 2. (Optional) Configure the Lambda function:
 
-   - Handler: `src.main.handler`
-   - Runtime: Python 3.9
+   - Handler: `lambda_function.lambda_handler`
+   - Runtime: Python 3.13
+   - Architecture: arm64 (the script builds arm64 wheels; keep them in sync)
    - Memory: 256 MB (recommended)
    - Timeout: 30 seconds
-
-   You can uncomment the configuration section in the deployment script to automate these settings.
 
 ### API Gateway Integration
 

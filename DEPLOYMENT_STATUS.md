@@ -12,7 +12,7 @@ The hotfix has been **directly applied** to your main router file:
 ### Option 1: If using AWS Lambda
 ```bash
 # Deploy the updated code to Lambda
-./utilities/deploy_lambda.sh
+./deploy_lambda.sh
 ```
 
 ### Option 2: If using local/container deployment
