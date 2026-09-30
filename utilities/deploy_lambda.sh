@@ -7,7 +7,7 @@ echo "🧹 Cleaning up previous deployment artifacts..."
 rm -rf package lambda_function.zip lvenv
 
 echo "🐍 Creating virtual environment..."
-python3.9 -m venv lvenv
+python3.13 -m venv lvenv
 source lvenv/bin/activate
 
 echo "📦 Creating package directory..."
@@ -20,7 +20,7 @@ echo "📥 Installing Lambda dependencies..."
 pip install \
     --platform manylinux2014_x86_64 \
     --implementation cp \
-    --python-version 3.9 \
+    --python-version 3.13 \
     --only-binary=:all: \
     --target ./package \
     -r requirements-lambda.txt

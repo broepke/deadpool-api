@@ -27,7 +27,9 @@ python -m pytest src/tests/test_routers.py::test_name -q
 ./utilities/deploy_lambda.sh
 ```
 
-`requirements-lambda.txt` pins the runtime deps that ship to Lambda (`fastapi==0.95.2`, `pydantic==1.10.13`, `mangum`, `rapidfuzz`). **Pydantic is v1** — use v1 model APIs (`Config`, `.dict()`, validators), not v2.
+`requirements-lambda.txt` pins the runtime deps that ship to Lambda (`fastapi==0.95.2`, `pydantic==1.10.26`, `mangum`, `rapidfuzz`). **Pydantic is v1** — use v1 model APIs (`Config`, `.dict()`, validators), not v2.
+
+The Lambda runs **Python 3.13** (x86_64). `deploy_lambda.sh` builds manylinux wheels for that exact version, so the script's `--python-version` must match the Lambda runtime. Don't move to Python 3.14+ without first migrating to Pydantic v2 and a newer FastAPI: Pydantic v1 does not support 3.14, and the app fails at import (API Gateway returns 502).
 
 ## Architecture
 
